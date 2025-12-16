@@ -1,0 +1,59 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockModelInvocation",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "arn:aws:bedrock:*::foundation-model/us.amazon.nova-sonic-v2:0"
+      ]
+    },
+    {
+      "Sid": "BedrockAgentCoreRuntime",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:GetAgentRuntime",
+        "bedrock:InvokeAgent",
+        "bedrock:InvokeAgentRuntime"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/bedrock/agentcore/*"
+    },
+    {
+      "Sid": "CloudWatchMetrics",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "cloudwatch:namespace": "AWS/Bedrock/AgentCore"
+        }
+      }
+    },
+    {
+      "Sid": "XRayTracing",
+      "Effect": "Allow",
+      "Action": [
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

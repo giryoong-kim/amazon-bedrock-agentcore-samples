@@ -1,0 +1,142 @@
+# Nova Sonic Chat Agent Configuration
+
+agent:
+  name: nova-sonic-chat-agent
+  description: "Conversational AI chat agent using Amazon Nova Sonic 2 and Strands Agents framework"
+  version: "1.0.0"
+  
+  # Runtime configuration
+  runtime:
+    platform: bedrock-agentcore
+    python_version: "3.11"
+    entrypoint: chat_agent.py
+    handler: chat_invocation
+    memory_mb: 2048
+    timeout_seconds: 300
+    
+  # Model configuration
+  model:
+    provider: amazon-bedrock
+    model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    # For Nova Sonic 2 model (when available)
+    # model_id: "us.amazon.nova-sonic-v2:0"
+    temperature: 0.7
+    max_tokens: 4096
+    
+  # Tools and capabilities
+  tools:
+    - name: calculator
+      enabled: true
+      description: "Mathematical calculations"
+    - name: web_search
+      enabled: true
+      description: "Web search for current information"
+      
+  # Conversation settings
+  conversation:
+    max_history_messages: 10
+    default_session_timeout: 3600
+    enable_streaming: true
+    
+  # System prompt
+  system_prompt: |
+    You are a helpful and friendly AI assistant powered by Amazon Nova Sonic 2,
+    designed to engage in natural, conversational interactions.
+    
+    Your capabilities include:
+    - Engaging in multi-turn conversations with context awareness
+    - Providing accurate and helpful information on a wide range of topics
+    - Performing calculations when needed
+    - Searching for current information when required
+    - Understanding and responding to user intent naturally
+    
+    Guidelines for interaction:
+    - Be conversational, warm, and approachable in your responses
+    - Maintain context throughout the conversation
+    - Ask clarifying questions when user intent is unclear
+    - Provide concise but complete answers
+    - Acknowledge when you don't know something
+    - Use tools when appropriate to enhance responses
+    - Keep responses natural and human-like
+
+# AWS Configuration
+aws:
+  region: us-east-1
+  
+  # IAM Configuration
+  iam:
+    role_name: NovaSonicChatAgentRole
+    policy_name: NovaSonicChatAgentPolicy
+    
+  # Bedrock Configuration
+  bedrock:
+    model_access:
+      - "anthropic.claude-3-5-sonnet-20241022-v2:0"
+      - "us.amazon.nova-sonic-v2:0"
+    
+  # Monitoring and Observability
+  monitoring:
+    cloudwatch_logs:
+      enabled: true
+      log_group: /aws/bedrock/agentcore/nova-sonic-chat-agent
+      retention_days: 7
+      
+    cloudwatch_metrics:
+      enabled: true
+      namespace: AWS/Bedrock/AgentCore
+      
+    xray_tracing:
+      enabled: true
+      sampling_rate: 1.0
+
+# Deployment Configuration
+deployment:
+  environment: production
+  
+  # Environment variables
+  environment_variables:
+    BYPASS_TOOL_CONSENT: "true"
+    AWS_REGION: us-east-1
+    LOG_LEVEL: INFO
+    
+  # Scaling configuration
+  scaling:
+    min_instances: 1
+    max_instances: 10
+    target_utilization: 70
+    
+  # Networking
+  networking:
+    vpc_enabled: false
+    # If VPC is needed:
+    # vpc_id: vpc-xxxxx
+    # subnet_ids:
+    #   - subnet-xxxxx
+    #   - subnet-yyyyy
+    # security_group_ids:
+    #   - sg-xxxxx
+
+# Development Configuration
+development:
+  local_testing:
+    enabled: true
+    mock_bedrock: false
+    
+  logging:
+    level: DEBUG
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Testing Configuration
+testing:
+  unit_tests:
+    enabled: true
+    coverage_threshold: 80
+    
+  integration_tests:
+    enabled: true
+    test_endpoint: null  # Set after deployment
+    
+  load_tests:
+    enabled: false
+    concurrent_users: 10
+    duration_seconds: 60
