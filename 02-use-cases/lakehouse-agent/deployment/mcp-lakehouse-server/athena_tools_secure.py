@@ -86,49 +86,88 @@ class SecureAthenaClaimsTools:
         except ClientError as e:
             raise Exception(f"Error assuming role with session tags: {str(e)}")
 
-    def _get_athena_client(self, user_id: str):
+    def _get_athena_client(self, user_id: str, tenant_credentials: Optional[Dict[str, str]] = None):
         """
-        Get Athena client with user-specific credentials (session tags).
+        Get Athena client with tenant-specific credentials from interceptor.
 
         Args:
             user_id: User email/ID
+            tenant_credentials: Temporary credentials from interceptor (if available)
 
         Returns:
             Athena client with scoped credentials
         """
+        # Priority 1: Use tenant credentials from interceptor (passed from Gateway)
+        if tenant_credentials:
+            return boto3.client(
+                'athena',
+                region_name=self.region,
+                aws_access_key_id=tenant_credentials['access_key_id'],
+                aws_secret_access_key=tenant_credentials['secret_access_key'],
+                aws_session_token=tenant_credentials['session_token']
+            )
+        
+        # Priority 2: Assume role with session tags (fallback for backward compatibility)
         if self.rls_role_arn:
             credentials = self._get_credentials_with_session_tag(user_id)
-        else:
-            credentials = {}
-        return boto3.client(
-            'athena',
-            region_name=self.region,
-            **credentials
-        )
+            return boto3.client(
+                'athena',
+                region_name=self.region,
+                **credentials
+            )
+        
+        # Priority 3: Use default credentials (local development)
+        return boto3.client('athena', region_name=self.region)
 
     def _execute_query(
         self,
         user_id: str,
         query: str,
-        wait_for_results: bool = True
+        wait_for_results: bool = True,
+        tenant_credentials: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
-        Execute Athena query with user-scoped credentials.
+        Execute Athena query with tenant-scoped credentials.
 
         IMPORTANT: This query does NOT include user_id filter in SQL!
-        The filtering is applied by Lake Formation based on session tags.
+        The filtering is applied by Lake Formation based on session tags or tenant role.
 
         Args:
             user_id: User email/ID (for session tag)
             query: SQL query WITHOUT user filtering
             wait_for_results: Whether to wait for completion
+            tenant_credentials: Temporary credentials from interceptor
 
         Returns:
             Query results
         """
         try:
-            # Get Athena client with user credentials
-            athena_client = self._get_athena_client(user_id)
+            # Get Athena client with tenant credentials
+            athena_client = self._get_athena_client(user_id, tenant_credentials)
+            
+            # Determine which role is being used for the query
+            if tenant_credentials:
+                role_name = tenant_credentials.get('role_name', 'unknown')
+                role_arn = tenant_credentials.get('role_arn', 'unknown')
+                print(f"🔐 Executing query with TENANT ROLE: {role_name}")
+                print(f"   Role ARN: {role_arn}")
+            elif self.rls_role_arn:
+                role_name = self.rls_role_arn.split('/')[-1]
+                print(f"🔐 Executing query with SESSION TAG ROLE: {role_name}")
+                print(f"   Role ARN: {self.rls_role_arn}")
+            else:
+                # Get current identity
+                try:
+                    sts_client = boto3.client('sts', region_name=self.region)
+                    identity = sts_client.get_caller_identity()
+                    arn = identity['Arn']
+                    if ':assumed-role/' in arn:
+                        role_name = arn.split(':assumed-role/')[1].split('/')[0]
+                        print(f"🔐 Executing query with DEFAULT ROLE: {role_name}")
+                    else:
+                        print(f"🔐 Executing query with IDENTITY: {arn}")
+                except:
+                    print(f"🔐 Executing query with DEFAULT CREDENTIALS")
 
             # Execute query - Lake Formation will automatically apply row filter
             response = athena_client.start_query_execution(
@@ -193,7 +232,8 @@ class SecureAthenaClaimsTools:
     def query_claims(
         self,
         user_id: str,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        tenant_credentials: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
         Query claims
@@ -203,9 +243,10 @@ class SecureAthenaClaimsTools:
         Args:
             user_id: User email (passed as session tag, not SQL parameter)
             filters: Optional additional filters
+            tenant_credentials: Temporary credentials from interceptor
 
         Returns:
-            User's claims (automatically filtered by Lake Formation)
+            User's claims (automatically filtered by Lake Formation or tenant role)
         """
         try:
             # Query WITHOUT user_id filter - Lake Formation adds it!
@@ -238,9 +279,8 @@ class SecureAthenaClaimsTools:
 
             query += " ORDER BY submitted_date DESC LIMIT 50"
 
-            # Execute with user-scoped credentials
-            # Lake Formation will add: AND user_id = <session_tag[user_id]>
-            results = self._execute_query(user_id, query)
+            # Execute with tenant-scoped credentials
+            results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
 
             return {
                 "success": True,
@@ -258,13 +298,14 @@ class SecureAthenaClaimsTools:
                 "message": f"Error querying claims: {str(e)}"
             }
 
-    def get_claim_details(self, user_id: str, claim_id: str) -> Dict[str, Any]:
+    def get_claim_details(self, user_id: str, claim_id: str, tenant_credentials: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Get claim details - Lake Formation ensures user can only see their claims.
 
         Args:
             user_id: User email (for session tag)
             claim_id: Claim ID
+            tenant_credentials: Temporary credentials from interceptor
 
         Returns:
             Claim details (only if user owns it)
@@ -278,7 +319,7 @@ class SecureAthenaClaimsTools:
                     AND user_id='{user_id}'
             """
 
-            results = self._execute_query(user_id, query)
+            results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
 
             if results and len(results) > 0:
                 return {
@@ -301,12 +342,13 @@ class SecureAthenaClaimsTools:
                 "message": f"Error retrieving claim: {str(e)}"
             }
 
-    def get_claims_summary(self, user_id: str) -> Dict[str, Any]:
+    def get_claims_summary(self, user_id: str, tenant_credentials: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Get claims summary - automatically scoped to user by Lake Formation.
 
         Args:
             user_id: User email
+            tenant_credentials: Temporary credentials from interceptor
 
         Returns:
             Summary statistics (only for user's claims)
@@ -328,7 +370,7 @@ class SecureAthenaClaimsTools:
                     AND user_id='{user_id}'
             """
 
-            results = self._execute_query(user_id, query)
+            results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
 
             if results and len(results) > 0:
                 summary = results[0]
