@@ -165,25 +165,41 @@ def get_athena_tools():
     return athena_tools
 
 
-def get_user_id_with_fallback(context_arg: Dict[str, Any] = None) -> str:
-    """Get user ID from context argument or fallback to test user."""
+def get_user_id_with_fallback(context_arg: Dict[str, Any] = None) -> tuple[str, Optional[Dict[str, str]]]:
+    """
+    Get user ID and tenant credentials from context argument or fallback to test user.
+    
+    Returns:
+        Tuple of (user_id, tenant_credentials)
+    """
     config = get_config()
     user_id = None
+    tenant_credentials = None
     
     if context_arg:
-        print(f"📋 Context argument received: {context_arg}")
+        print(f"📋 Context argument received: {list(context_arg.keys())}")
         user_id = context_arg.get('user_id')
         if user_id:
-            print(f"   Got user_id from context argument: {user_id}")
-            return user_id
+            print(f"   Got user_id from context: {user_id}")
+        
+        # Extract tenant credentials if present
+        tenant_creds = context_arg.get('tenant_credentials')
+        if tenant_creds:
+            print(f"   Got tenant_credentials from context")
+            print(f"   Role: {tenant_creds.get('role_name', 'N/A')}")
+            print(f"   Expiration: {tenant_creds.get('expiration', 'N/A')}")
+            tenant_credentials = tenant_creds
+        
+        if user_id:
+            return user_id, tenant_credentials
     
     if config['local_development']:
         user_id = config['test_user']
         print(f"⚠️  Using test user for local development: {user_id}")
-        return user_id
+        return user_id, None
     
     print("❌ User identity not found in request")
-    return None
+    return None, None
 
 
 @mcp.tool(
@@ -210,8 +226,10 @@ def query_claims(
     print(f"   context: {context}")
     
     try:
-        user_id = get_user_id_with_fallback(context)
+        user_id, tenant_credentials = get_user_id_with_fallback(context)
         print(f"👤 USER ID: {user_id}")
+        if tenant_credentials:
+            print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
         
         if not user_id:
             return {"success": False, "error": "User identity not found in request"}
@@ -226,7 +244,7 @@ def query_claims(
         print(f"🔍 FILTERS: {filters}")
 
         tools = get_athena_tools()
-        result = tools.query_claims(user_id, filters if filters else None)
+        result = tools.query_claims(user_id, filters if filters else None, tenant_credentials)
         
         print("📤 OUTPUT:")
         print(f"   success: {result.get('success', 'N/A')}")
@@ -262,14 +280,16 @@ def get_claim_details(claim_id: str, context: Dict[str, Any] = None) -> Dict[str
     print(f"   context: {context}")
     
     try:
-        user_id = get_user_id_with_fallback(context)
+        user_id, tenant_credentials = get_user_id_with_fallback(context)
         print(f"👤 USER ID: {user_id}")
+        if tenant_credentials:
+            print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
         
         if not user_id:
             return {"success": False, "error": "User identity not found in request"}
         
         tools = get_athena_tools()
-        result = tools.get_claim_details(user_id, claim_id)
+        result = tools.get_claim_details(user_id, claim_id, tenant_credentials)
         
         print("📤 OUTPUT:")
         print(f"   success: {result.get('success', 'N/A')}")
@@ -305,14 +325,16 @@ def get_claims_summary(context: Dict[str, Any] = None) -> Dict[str, Any]:
     print(f"   context: {context}")
     
     try:
-        user_id = get_user_id_with_fallback(context)
+        user_id, tenant_credentials = get_user_id_with_fallback(context)
         print(f"👤 USER ID: {user_id}")
+        if tenant_credentials:
+            print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
         
         if not user_id:
             return {"success": False, "error": "User identity not found in request"}
         
         tools = get_athena_tools()
-        result = tools.get_claims_summary(user_id)
+        result = tools.get_claims_summary(user_id, tenant_credentials)
         
         print("📤 OUTPUT:")
         print(f"   success: {result.get('success', 'N/A')}")

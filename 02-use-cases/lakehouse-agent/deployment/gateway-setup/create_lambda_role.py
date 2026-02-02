@@ -50,6 +50,52 @@ def create_lambda_role():
         )
         print(f"✅ Attached AWSLambdaBasicExecutionRole policy")
         
+        # Add inline policy for STS AssumeRole on tenant roles
+        sts_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "AssumeRoleTenantRoles",
+                    "Effect": "Allow",
+                    "Action": "sts:AssumeRole",
+                    "Resource": [
+                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-1",
+                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-2"
+                    ]
+                }
+            ]
+        }
+        
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName='AssumeRoleTenantPolicy',
+            PolicyDocument=json.dumps(sts_policy)
+        )
+        print(f"✅ Attached inline policy for STS AssumeRole on tenant roles")
+        
+        # Add inline policy for KMS decrypt (for Lambda environment variables)
+        kms_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "KMSDecryptForLambda",
+                    "Effect": "Allow",
+                    "Action": [
+                        "kms:Decrypt",
+                        "kms:DescribeKey"
+                    ],
+                    "Resource": f"arn:aws:kms:{region}:{account_id}:key/*"
+                }
+            ]
+        }
+        
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName='KMSDecryptPolicy',
+            PolicyDocument=json.dumps(kms_policy)
+        )
+        print(f"✅ Attached inline policy for KMS decrypt")
+        
         # Store role ARN in SSM Parameter Store
         print(f"💾 Storing role ARN in SSM Parameter Store...")
         ssm.put_parameter(
@@ -68,6 +114,52 @@ def create_lambda_role():
         response = iam.get_role(RoleName=role_name)
         role_arn = response['Role']['Arn']
         print(f"✅ Using existing role: {role_arn}")
+        
+        # Update inline policy for STS AssumeRole on tenant roles
+        sts_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "AssumeRoleTenantRoles",
+                    "Effect": "Allow",
+                    "Action": "sts:AssumeRole",
+                    "Resource": [
+                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-1",
+                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-2"
+                    ]
+                }
+            ]
+        }
+        
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName='AssumeRoleTenantPolicy',
+            PolicyDocument=json.dumps(sts_policy)
+        )
+        print(f"✅ Updated inline policy for STS AssumeRole on tenant roles")
+        
+        # Add/update inline policy for KMS decrypt (for Lambda environment variables)
+        kms_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "KMSDecryptForLambda",
+                    "Effect": "Allow",
+                    "Action": [
+                        "kms:Decrypt",
+                        "kms:DescribeKey"
+                    ],
+                    "Resource": f"arn:aws:kms:{region}:{account_id}:key/*"
+                }
+            ]
+        }
+        
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName='KMSDecryptPolicy',
+            PolicyDocument=json.dumps(kms_policy)
+        )
+        print(f"✅ Updated inline policy for KMS decrypt")
         
         # Store role ARN in SSM Parameter Store
         print(f"💾 Storing role ARN in SSM Parameter Store...")

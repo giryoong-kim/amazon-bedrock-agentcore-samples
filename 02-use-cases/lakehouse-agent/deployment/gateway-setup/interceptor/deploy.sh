@@ -104,7 +104,8 @@ if aws lambda get-function --function-name lakehouse-gateway-interceptor --regio
     echo "⚙️  Updating Lambda configuration..."
     aws lambda update-function-configuration \
         --function-name lakehouse-gateway-interceptor \
-        --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID}" \
+        --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,USER_ROLE_MAPPING_TABLE=lakehouse-user-map}" \
+        --kms-key-arn "" \
         --region $AWS_REGION
     
     echo "✅ Lambda function updated!"
@@ -124,7 +125,7 @@ else
             --zip-file fileb://interceptor-lambda.zip \
             --timeout 30 \
             --memory-size 256 \
-            --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID}" \
+            --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,USER_ROLE_MAPPING_TABLE=lakehouse-user-map}" \
             --region $AWS_REGION 2>/dev/null; then
             echo "✅ Lambda function created!"
             break
@@ -155,6 +156,16 @@ aws ssm put-parameter \
     --region $AWS_REGION
 
 echo "✅ Stored parameter: /app/lakehouse-agent/interceptor-lambda-arn"
+
+# Setup DynamoDB user-role mapping table
+echo ""
+echo "📊 Setting up DynamoDB user-role mapping table..."
+python setup_user_role_mapping.py
+
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to setup DynamoDB table"
+    exit 1
+fi
 
 echo ""
 echo "✨ Deployment complete!"
