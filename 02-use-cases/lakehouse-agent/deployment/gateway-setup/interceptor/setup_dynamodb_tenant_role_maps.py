@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Setup DynamoDB table for user-to-role mapping
+Setup DynamoDB table for tenant-to-role mapping
 
-This script creates a DynamoDB table to store mappings between users and their
+This script creates a DynamoDB table to store mappings between JWT claims and
 assigned IAM roles for tenant-based access control.
 
 Table Schema:
-- Table Name: lakehouse-user-map
-- Partition Key: userId (String)
-- Attribute: iamRole (String)
+- Table Name: lakehouse_tenant_role_map
+- Composite Key: (claim_name, claim_value)
+- Attributes: (role_type, role_value)
 
 Usage:
-    python setup_user_role_mapping.py
-    python setup_user_role_mapping.py --table-name custom-table-name
+    python setup_dynamodb_tenant_role_maps.py
+    python setup_dynamodb_tenant_role_maps.py --table-name custom-table-name
 """
 
 import boto3
@@ -22,8 +22,8 @@ import argparse
 from typing import Dict, List
 from botocore.exceptions import ClientError
 
-class UserRoleMappingSetup:
-    def __init__(self, table_name: str = 'lakehouse-user-map'):
+class TenantRoleMappingSetup:
+    def __init__(self, table_name: str = 'lakehouse_tenant_role_map'):
         """
         Initialize DynamoDB setup.
         
@@ -52,7 +52,7 @@ class UserRoleMappingSetup:
     
     def create_table(self) -> bool:
         """
-        Create DynamoDB table for user-role mapping.
+        Create DynamoDB table for tenant-role mapping.
         
         Returns:
             True if table was created or already exists
@@ -71,18 +71,26 @@ class UserRoleMappingSetup:
                 print(f"✅ Table is active")
                 return True
             
-            # Create table
+            # Create table with composite key
             table = self.dynamodb.create_table(
                 TableName=self.table_name,
                 KeySchema=[
                     {
-                        'AttributeName': 'userId',
+                        'AttributeName': 'claim_name',
                         'KeyType': 'HASH'  # Partition key
+                    },
+                    {
+                        'AttributeName': 'claim_value',
+                        'KeyType': 'RANGE'  # Sort key
                     }
                 ],
                 AttributeDefinitions=[
                     {
-                        'AttributeName': 'userId',
+                        'AttributeName': 'claim_name',
+                        'AttributeType': 'S'  # String
+                    },
+                    {
+                        'AttributeName': 'claim_value',
                         'AttributeType': 'S'  # String
                     }
                 ],
@@ -94,7 +102,7 @@ class UserRoleMappingSetup:
                     },
                     {
                         'Key': 'Purpose',
-                        'Value': 'user-role-mapping'
+                        'Value': 'tenant-role-mapping'
                     }
                 ]
             )
@@ -114,24 +122,59 @@ class UserRoleMappingSetup:
             print(f"❌ Unexpected error: {e}")
             return False
     
-    def get_seed_data(self) -> List[Dict[str, str]]:
+    def get_role_arns_from_ssm(self) -> Dict[str, str]:
         """
-        Get seed data for user-role mappings.
+        Get IAM role ARNs from SSM Parameter Store.
         
         Returns:
-            List of user-role mappings
+            Dictionary mapping group names to role ARNs
+        """
+        role_arns = {}
+        role_mappings = {
+            'adjusters': 'lakehouse-adjusters-role',
+            'users': 'lakehouse-users-role'
+        }
+        
+        for group, role_name in role_mappings.items():
+            try:
+                response = self.ssm_client.get_parameter(
+                    Name=f'/app/lakehouse-agent/roles/{role_name}'
+                )
+                role_arns[group] = response['Parameter']['Value']
+                print(f"   ✅ Retrieved {role_name} ARN from SSM")
+            except Exception as e:
+                print(f"   ⚠️  Could not retrieve {role_name} ARN: {e}")
+                # Fallback to constructed ARN
+                role_arns[group] = f"arn:aws:iam::{self.account_id}:role/{role_name}"
+                print(f"   Using constructed ARN: {role_arns[group]}")
+        
+        return role_arns
+    
+    def get_seed_data(self, role_arns: Dict[str, str]) -> List[Dict[str, str]]:
+        """
+        Get seed data for tenant-role mappings.
+        
+        Args:
+            role_arns: Dictionary mapping group names to role ARNs
+            
+        Returns:
+            List of tenant-role mappings
         """
         return [
             {
-                'userId': 'user001@example.com',
-                'iamRole': f'arn:aws:iam::{self.account_id}:role/lakehouse-tenant-1',
-                'description': 'User 1 - Tenant 1 access',
+                'claim_name': 'cognito:groups',
+                'claim_value': '["adjusters"]',
+                'role_type': 'iam_role',
+                'role_value': role_arns.get('adjusters', f"arn:aws:iam::{self.account_id}:role/lakehouse-adjusters-role"),
+                'description': 'Adjusters group mapping',
                 'createdAt': '2024-01-01T00:00:00Z'
             },
             {
-                'userId': 'user002@example.com',
-                'iamRole': f'arn:aws:iam::{self.account_id}:role/lakehouse-tenant-2',
-                'description': 'User 2 - Tenant 2 access',
+                'claim_name': 'cognito:groups',
+                'claim_value': '["users"]',
+                'role_type': 'iam_role',
+                'role_value': role_arns.get('users', f"arn:aws:iam::{self.account_id}:role/lakehouse-users-role"),
+                'description': 'Users group mapping',
                 'createdAt': '2024-01-01T00:00:00Z'
             }
         ]
@@ -146,22 +189,30 @@ class UserRoleMappingSetup:
         print(f"\n📝 Populating seed data...")
         
         try:
+            # Get role ARNs from SSM
+            role_arns = self.get_role_arns_from_ssm()
+            
             table = self.dynamodb.Table(self.table_name)
-            seed_data = self.get_seed_data()
+            seed_data = self.get_seed_data(role_arns)
             
             for item in seed_data:
                 # Check if item already exists
                 try:
-                    response = table.get_item(Key={'userId': item['userId']})
+                    response = table.get_item(
+                        Key={
+                            'claim_name': item['claim_name'],
+                            'claim_value': item['claim_value']
+                        }
+                    )
                     if 'Item' in response:
-                        print(f"   ℹ️  User {item['userId']} already exists, skipping")
+                        print(f"   ℹ️  Mapping ({item['claim_name']}, {item['claim_value']}) already exists, skipping")
                         continue
                 except:
                     pass
                 
                 # Put item
                 table.put_item(Item=item)
-                print(f"   ✅ Added mapping: {item['userId']} → {item['iamRole'].split('/')[-1]}")
+                print(f"   ✅ Added mapping: ({item['claim_name']}, {item['claim_value']}) → {item['role_type']}={item['role_value'].split('/')[-1]}")
             
             print(f"✅ Seed data populated successfully")
             return True
@@ -186,8 +237,8 @@ class UserRoleMappingSetup:
             
             print(f"✅ Found {len(items)} items in table:")
             for item in items:
-                print(f"   - {item['userId']}")
-                print(f"     Role: {item['iamRole']}")
+                print(f"   - Key: ({item['claim_name']}, {item['claim_value']})")
+                print(f"     Target: {item['role_type']} = {item['role_value']}")
                 if 'description' in item:
                     print(f"     Description: {item['description']}")
             
@@ -203,14 +254,14 @@ class UserRoleMappingSetup:
             
             parameters = [
                 {
-                    'name': '/app/lakehouse-agent/user-role-mapping-table',
+                    'name': '/app/lakehouse-agent/tenant-role-mapping-table',
                     'value': self.table_name,
-                    'description': 'DynamoDB table name for user-role mapping'
+                    'description': 'DynamoDB table name for tenant-role mapping'
                 },
                 {
-                    'name': '/app/lakehouse-agent/user-role-mapping-table-arn',
+                    'name': '/app/lakehouse-agent/tenant-role-mapping-table-arn',
                     'value': table_arn,
-                    'description': 'DynamoDB table ARN for user-role mapping'
+                    'description': 'DynamoDB table ARN for tenant-role mapping'
                 }
             ]
             
@@ -240,7 +291,7 @@ class UserRoleMappingSetup:
                 "Version": "2012-10-17",
                 "Statement": [
                     {
-                        "Sid": "DynamoDBReadUserRoleMapping",
+                        "Sid": "DynamoDBReadTenantRoleMapping",
                         "Effect": "Allow",
                         "Action": [
                             "dynamodb:GetItem",
@@ -255,7 +306,7 @@ class UserRoleMappingSetup:
             # Add policy to Lambda role
             iam.put_role_policy(
                 RoleName=lambda_role_name,
-                PolicyName='DynamoDBUserRoleMappingPolicy',
+                PolicyName='DynamoDBTenantRoleMappingPolicy',
                 PolicyDocument=json.dumps(dynamodb_policy)
             )
             
@@ -267,7 +318,7 @@ class UserRoleMappingSetup:
     
     def setup(self):
         """Run the complete setup."""
-        print("\n🚀 Starting User-Role Mapping Setup")
+        print("\n🚀 Starting Tenant-Role Mapping Setup")
         print("=" * 70)
         
         # Create table
@@ -296,33 +347,40 @@ class UserRoleMappingSetup:
         print(f"   Table Name: {self.table_name}")
         print(f"   Region: {self.region}")
         print(f"   Billing Mode: PAY_PER_REQUEST (on-demand)")
-        print(f"   Seed Data: 2 users populated")
+        print(f"   Seed Data: 2 group mappings populated")
+        print(f"\n🔑 Key Schema:")
+        print(f"   - Partition Key: claim_name (String)")
+        print(f"   - Sort Key: claim_value (String)")
+        print(f"\n📊 Attributes:")
+        print(f"   - role_type (String)")
+        print(f"   - role_value (String)")
         print(f"\n💾 SSM Parameters:")
-        print(f"   - /app/lakehouse-agent/user-role-mapping-table")
-        print(f"   - /app/lakehouse-agent/user-role-mapping-table-arn")
+        print(f"   - /app/lakehouse-agent/tenant-role-mapping-table")
+        print(f"   - /app/lakehouse-agent/tenant-role-mapping-table-arn")
         print(f"\n🔐 Lambda Role:")
         print(f"   - Added DynamoDB read permissions")
         print(f"\n📝 Next Steps:")
         print(f"   1. Update lambda_function.py to read from DynamoDB")
-        print(f"   2. Redeploy Lambda function: ./deploy.sh")
-        print(f"   3. Test with user001@example.com and user002@example.com")
+        print(f"   2. Query using composite key: (claim_name, claim_value)")
+        print(f"   3. Redeploy Lambda function: ./deploy.sh")
+        print(f"   4. Test with adjusters and users groups")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Setup DynamoDB table for user-role mapping'
+        description='Setup DynamoDB table for tenant-role mapping'
     )
     parser.add_argument(
         '--table-name',
         required=False,
-        default='lakehouse-user-map',
-        help='Name of the DynamoDB table (default: lakehouse-user-map)'
+        default='lakehouse_tenant_role_map',
+        help='Name of the DynamoDB table (default: lakehouse_tenant_role_map)'
     )
     
     args = parser.parse_args()
     
     # Run setup
-    setup = UserRoleMappingSetup(table_name=args.table_name)
+    setup = TenantRoleMappingSetup(table_name=args.table_name)
     setup.setup()
 
 

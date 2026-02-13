@@ -21,7 +21,7 @@ from botocore.exceptions import ClientError
 
 class SecureAthenaClaimsTools:
     """
-    Secure tools for querying health lakehouse data with Lake Formation RLS.
+    Secure tools for querying health lakehouse data with Lake Formation RBAC and .
     """
 
     def __init__(
@@ -46,45 +46,6 @@ class SecureAthenaClaimsTools:
         self.rls_role_arn = rls_role_arn
         self.sts_client = boto3.client('sts', region_name=region)
 
-    def _get_credentials_with_session_tag(self, user_id: str) -> Dict[str, str]:
-        """
-        Assume IAM role with session tag containing user identity.
-
-        This is the KEY security mechanism:
-        - User identity is passed as a session tag
-        - Lake Formation uses this tag to filter data
-        - Filtering happens at AWS query engine, not application
-
-        Args:
-            user_id: User email/ID from OAuth token
-
-        Returns:
-            Temporary AWS credentials with session tag
-        """
-        try:
-            # Assume role with session tags
-            response = self.sts_client.assume_role(
-                RoleArn=self.rls_role_arn,
-                RoleSessionName=f"claims-query-{user_id.replace('@', '-').replace('.', '-')}",
-                Tags=[
-                    {
-                        'Key': 'user_id',
-                        'Value': user_id
-                    }
-                ],
-                DurationSeconds=3600  # 1 hour
-            )
-
-            credentials = response['Credentials']
-
-            return {
-                'aws_access_key_id': credentials['AccessKeyId'],
-                'aws_secret_access_key': credentials['SecretAccessKey'],
-                'aws_session_token': credentials['SessionToken']
-            }
-
-        except ClientError as e:
-            raise Exception(f"Error assuming role with session tags: {str(e)}")
 
     def _get_athena_client(self, user_id: str, tenant_credentials: Optional[Dict[str, str]] = None):
         """
@@ -97,7 +58,7 @@ class SecureAthenaClaimsTools:
         Returns:
             Athena client with scoped credentials
         """
-        # Priority 1: Use tenant credentials from interceptor (passed from Gateway)
+        # Use tenant credentials from interceptor (passed from Gateway)
         if tenant_credentials:
             return boto3.client(
                 'athena',
@@ -106,17 +67,8 @@ class SecureAthenaClaimsTools:
                 aws_secret_access_key=tenant_credentials['secret_access_key'],
                 aws_session_token=tenant_credentials['session_token']
             )
-        
-        # Priority 2: Assume role with session tags (fallback for backward compatibility)
-        if self.rls_role_arn:
-            credentials = self._get_credentials_with_session_tag(user_id)
-            return boto3.client(
-                'athena',
-                region_name=self.region,
-                **credentials
-            )
-        
-        # Priority 3: Use default credentials (local development)
+
+        # Default: Use default credentials (local development)
         return boto3.client('athena', region_name=self.region)
 
     def _execute_query(
@@ -226,9 +178,6 @@ class SecureAthenaClaimsTools:
         except Exception as e:
             raise Exception(f"Error executing secure Athena query: {str(e)}")
 
-    # TODO Lakeformation as of now does not support dynamic query filters. https://docs.aws.amazon.com/lake-formation/latest/dg/data-filtering-notes.html 
-    # https://repost.aws/questions/QUjGeTaN2US8mjiON0nzDJzw/dynamic-filter-on-lake-formation
-    # The below mechanism can be used for static filters in the query if required. Retaining this method for future use
     def query_claims(
         self,
         user_id: str,
@@ -248,9 +197,12 @@ class SecureAthenaClaimsTools:
         Returns:
             User's claims (automatically filtered by Lake Formation or tenant role)
         """
-        try:
-            # Query WITHOUT user_id filter - Lake Formation adds it!
+        try: 
             query = f"""
+                WITH role_exp AS (
+                    SELECT user_role FROM {self.database_name}.users
+                    WHERE user_id='{user_id}'
+                )
                 SELECT
                     claim_id,
                     patient_name,
@@ -266,6 +218,7 @@ class SecureAthenaClaimsTools:
                 FROM {self.database_name}.claims
                 WHERE 1=1
                     AND user_id='{user_id}'
+                    OR 'adjuster' in (SELECT user_role FROM role_exp)
             """
 
             # Add optional filters (safely)

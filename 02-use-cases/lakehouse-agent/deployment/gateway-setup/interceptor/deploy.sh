@@ -57,6 +57,7 @@ echo "📦 Packaging Lambda function..."
 mkdir -p dist
 pip install -r requirements.txt -t dist/ --platform manylinux2014_x86_64 --only-binary=:all:
 cp lambda_function.py dist/
+cp token_exchange.py dist/
 
 cd dist
 zip -r ../interceptor-lambda.zip .
@@ -104,7 +105,7 @@ if aws lambda get-function --function-name lakehouse-gateway-interceptor --regio
     echo "⚙️  Updating Lambda configuration..."
     aws lambda update-function-configuration \
         --function-name lakehouse-gateway-interceptor \
-        --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,USER_ROLE_MAPPING_TABLE=lakehouse-user-map}" \
+        --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,TENANT_ROLE_MAPPING_TABLE=lakehouse_tenant_role_map}" \
         --kms-key-arn "" \
         --region $AWS_REGION
     
@@ -125,7 +126,7 @@ else
             --zip-file fileb://interceptor-lambda.zip \
             --timeout 30 \
             --memory-size 256 \
-            --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,USER_ROLE_MAPPING_TABLE=lakehouse-user-map}" \
+            --environment "Variables={COGNITO_REGION=$AWS_REGION,COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID,COGNITO_APP_CLIENT_ID=$COGNITO_APP_CLIENT_ID,TENANT_ROLE_MAPPING_TABLE=lakehouse_tenant_role_map}" \
             --region $AWS_REGION 2>/dev/null; then
             echo "✅ Lambda function created!"
             break
@@ -157,10 +158,10 @@ aws ssm put-parameter \
 
 echo "✅ Stored parameter: /app/lakehouse-agent/interceptor-lambda-arn"
 
-# Setup DynamoDB user-role mapping table
+# Setup DynamoDB tenant-role mapping table
 echo ""
-echo "📊 Setting up DynamoDB user-role mapping table..."
-python setup_user_role_mapping.py
+echo "📊 Setting up DynamoDB tenant-role mapping table..."
+python setup_dynamodb_tenant_role_maps.py
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to setup DynamoDB table"

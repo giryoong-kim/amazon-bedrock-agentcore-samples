@@ -59,8 +59,8 @@ def create_lambda_role():
                     "Effect": "Allow",
                     "Action": "sts:AssumeRole",
                     "Resource": [
-                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-1",
-                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-2"
+                        f"arn:aws:iam::{account_id}:role/lakehouse-users-role",
+                        f"arn:aws:iam::{account_id}:role/lakehouse-adjusters-role"
                     ]
                 }
             ]
@@ -124,8 +124,8 @@ def create_lambda_role():
                     "Effect": "Allow",
                     "Action": "sts:AssumeRole",
                     "Resource": [
-                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-1",
-                        f"arn:aws:iam::{account_id}:role/lakehouse-tenant-2"
+                        f"arn:aws:iam::{account_id}:role/lakehouse-users-role",
+                        f"arn:aws:iam::{account_id}:role/lakehouse-adjusters-role"
                     ]
                 }
             ]

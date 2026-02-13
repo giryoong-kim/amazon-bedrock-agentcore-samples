@@ -5,16 +5,17 @@ This Lambda function acts as a Gateway Interceptor following the AgentCore MCP p
 1. Extracts JWT bearer tokens from MCP gateway request structure
 2. Validates JWT tokens against Cognito
 3. Extracts user principal (email/username) from JWT claims
-4. Adds user identity to request headers for downstream MCP server
-5. Returns responses in proper MCP interceptor format
+4. Exchanges JWT claims to IAM credentials via DynamoDB role mapping
+5. Adds user identity and credentials to request headers for downstream MCP server
+6. Returns responses in proper MCP interceptor format
 
 Reference: https://github.com/awslabs/amazon-bedrock-agentcore-samples/blob/main/01-tutorials/02-AgentCore-gateway/14-token-exchange-at-request-interceptor/
 
 OAuth Flow:
   Streamlit → lakehouse-agent → Gateway (this interceptor) → MCP server
   
-The interceptor extracts the principal from the JWT token and passes it to the MCP server
-for Lake Formation row-level security enforcement.
+The interceptor extracts the principal from the JWT token and exchanges it for
+IAM credentials based on tenant role mappings for Lake Formation row-level security.
 """
 
 import json
@@ -25,6 +26,9 @@ from typing import Dict, Any, Optional
 import urllib.request
 import base64
 from jose import jwt, JWTError
+
+# Import token exchange module
+from token_exchange import exchange_jwt_to_iam, get_claim_for_exchange
 
 # Configure logging
 logger = logging.getLogger()
@@ -284,98 +288,6 @@ def get_user_scopes(claims: Dict[str, Any]) -> list:
     return scopes
 
 
-def assume_tenant_role_experimental(principal: str) -> Optional[Dict[str, Any]]:
-    """
-    EXPERIMENTAL: Assume tenant role based on user principal.
-    
-    This function demonstrates tenant-based access control by assuming
-    different IAM roles based on the user identity. The user-to-role mapping
-    is retrieved from DynamoDB table 'lakehouse-user-map'.
-    
-    The temporary credentials can be used to execute Athena queries
-    with tenant-specific permissions and row-level security.
-    
-    Args:
-        principal: User principal (email/username) from JWT claims
-        
-    Returns:
-        Dictionary with temporary credentials or None if assume role fails
-        {
-            'AccessKeyId': str,
-            'SecretAccessKey': str,
-            'SessionToken': str,
-            'Expiration': datetime,
-            'RoleArn': str
-        }
-    """
-    try:
-        # Get table name from environment variable or SSM
-        table_name = os.environ.get('USER_ROLE_MAPPING_TABLE')
-        
-        if not table_name:
-            # Try to get from SSM Parameter Store
-            try:
-                ssm = boto3.client('ssm')
-                response = ssm.get_parameter(Name='/app/lakehouse-agent/user-role-mapping-table')
-                table_name = response['Parameter']['Value']
-                logger.info(f"Loaded table name from SSM: {table_name}")
-            except Exception as e:
-                logger.error(f"Failed to get table name from SSM: {e}")
-                # Fallback to default table name
-                table_name = 'lakehouse-user-map'
-                logger.info(f"Using default table name: {table_name}")
-        
-        # Query DynamoDB for user-role mapping
-        dynamodb = boto3.resource('dynamodb')
-        table = dynamodb.Table(table_name)
-        
-        logger.info(f"🔍 Looking up role mapping for user: {principal}")
-        
-        response = table.get_item(Key={'userId': principal})
-        
-        if 'Item' not in response:
-            logger.warning(f"⚠️  No role mapping found for user: {principal}")
-            logger.info(f"   Using default role: lakehouse-tenant-2")
-            # Default to tenant-2 if no mapping found
-            role_arn = f"arn:aws:iam::{boto3.client('sts').get_caller_identity()['Account']}:role/lakehouse-tenant-2"
-            role_name = 'lakehouse-tenant-2'
-        else:
-            item = response['Item']
-            role_arn = item['iamRole']
-            role_name = role_arn.split('/')[-1]
-            logger.info(f"✅ Found role mapping: {principal} → {role_name}")
-        
-        logger.info(f"🔐 Assuming tenant role: {role_arn} for principal: {principal}")
-        
-        # Assume the tenant role
-        sts_client = boto3.client('sts')
-        response = sts_client.assume_role(
-            RoleArn=role_arn,
-            RoleSessionName=f"lakehouse-session-{principal.replace('@', '-').replace('.', '-')}",
-            DurationSeconds=3600  # 1 hour
-        )
-        
-        credentials = response['Credentials']
-        
-        logger.info(f"✅ Successfully assumed role: {role_arn}")
-        logger.info(f"   Session expires at: {credentials['Expiration']}")
-        
-        return {
-            'AccessKeyId': credentials['AccessKeyId'],
-            'SecretAccessKey': credentials['SecretAccessKey'],
-            'SessionToken': credentials['SessionToken'],
-            'Expiration': credentials['Expiration'],
-            'RoleArn': role_arn,
-            'RoleName': role_name
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Error assuming tenant role for {principal}: {str(e)}")
-        import traceback
-        logger.error(f"Stack trace: {traceback.format_exc()}")
-        return None
-
-
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for AgentCore Gateway interceptor.
@@ -470,12 +382,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         scopes = get_user_scopes(claims)
         logger.info(f"👤 User: {user_principal}, Scopes: {scopes}")
 
-        # EXPERIMENTAL: Assume tenant role and get temporary credentials
-        tenant_credentials = assume_tenant_role_experimental(user_principal)
-        if tenant_credentials:
-            logger.info(f"🔑 Obtained temporary credentials for role: {tenant_credentials['RoleName']}")
+        # Exchange JWT claims to IAM credentials via DynamoDB role mapping
+        tenant_credentials = None
+        claim_for_exchange = get_claim_for_exchange(claims)
+        
+        if claim_for_exchange:
+            claim_name, claim_value = claim_for_exchange
+            logger.info(f"🔄 Attempting token exchange for: {claim_name}={claim_value}")
+            tenant_credentials = exchange_jwt_to_iam(claim_name, claim_value)
+            
+            if tenant_credentials:
+                logger.info(f"🔑 Obtained temporary credentials for role: {tenant_credentials['RoleName']}")
+            else:
+                logger.warning(f"⚠️  Failed to exchange JWT to IAM credentials")
         else:
-            logger.warning(f"⚠️  Failed to assume tenant role for user: {user_principal}")
+            logger.warning(f"⚠️  No suitable claim found for token exchange")
 
         # Add user identity to headers for downstream MCP server
         # The MCP server will use X-User-Identity for Lake Formation RLS
@@ -486,13 +407,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'X-User-Scopes': ','.join(scopes) if scopes else ''
         }
         
-        # EXPERIMENTAL: Add tenant role information to headers
+        # Add tenant role information to headers if credentials were obtained
         if tenant_credentials:
             transformed_headers['X-Tenant-Role'] = tenant_credentials['RoleName']
             transformed_headers['X-Tenant-Role-Arn'] = tenant_credentials['RoleArn']
 
         # Also add user context to body if it has params/arguments
-        # This ensures the MCP server can access user identity
+        # This ensures the MCP server can access user identity and credentials
         transformed_body = body.copy()
         if 'params' in transformed_body and 'arguments' in transformed_body['params']:
             if 'context' not in transformed_body['params']['arguments']:
@@ -500,7 +421,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             transformed_body['params']['arguments']['context']['user_id'] = user_principal
             transformed_body['params']['arguments']['context']['scopes'] = scopes
             
-            # EXPERIMENTAL: Add tenant credentials to context
+            # Add tenant credentials to context if available
             if tenant_credentials:
                 transformed_body['params']['arguments']['context']['tenant_credentials'] = {
                     'access_key_id': tenant_credentials['AccessKeyId'],

@@ -354,11 +354,33 @@ class CognitoSetup:
         else:
             print(f"✅ Using existing domain: {domain_url}")
 
+        # Create Cognito groups (if not exist)
+        groups = [
+            {'name': 'users', 'description': 'Regular users group'},
+            {'name': 'adjusters', 'description': 'Claims adjusters group'}
+        ]
+        
+        for group in groups:
+            try:
+                self.cognito.create_group(
+                    GroupName=group['name'],
+                    UserPoolId=user_pool_id,
+                    Description=group['description']
+                )
+                print(f"✅ Group created: {group['name']}")
+            except self.cognito.exceptions.GroupExistsException:
+                print(f"ℹ️  Group already exists: {group['name']}")
+            except Exception as e:
+                if 'already exists' in str(e).lower():
+                    print(f"ℹ️  Group already exists: {group['name']}")
+                else:
+                    print(f"⚠️  Error creating group {group['name']}: {e}")
+
         # Create test users with email as username (skip if already exist)
         test_users = [
-            {'email': 'user001@example.com', 'name': 'User 001'},
-            {'email': 'user002@example.com', 'name': 'User 002'},
-            {'email': 'adjuster001@example.com', 'name': 'Adjuster 001'}
+            {'email': 'user001@example.com', 'name': 'User 001', 'group': 'users'},
+            {'email': 'user002@example.com', 'name': 'User 002', 'group': 'users'},
+            {'email': 'adjuster001@example.com', 'name': 'Adjuster 001', 'group': 'adjusters'}
         ]
         
         for user in test_users:
@@ -376,8 +398,33 @@ class CognitoSetup:
                     MessageAction='SUPPRESS'  # Don't send welcome email
                 )
                 print(f"✅ Test user created: {email} (username: {email})")
+                
+                # Add user to group
+                try:
+                    self.cognito.admin_add_user_to_group(
+                        UserPoolId=user_pool_id,
+                        Username=email,
+                        GroupName=user['group']
+                    )
+                    print(f"   ✅ Added to group: {user['group']}")
+                except Exception as e:
+                    print(f"   ⚠️  Error adding to group: {e}")
+                    
             except self.cognito.exceptions.UsernameExistsException:
                 print(f"ℹ️  Test user already exists: {email}")
+                # Try to add to group even if user exists
+                try:
+                    self.cognito.admin_add_user_to_group(
+                        UserPoolId=user_pool_id,
+                        Username=email,
+                        GroupName=user['group']
+                    )
+                    print(f"   ✅ Added to group: {user['group']}")
+                except Exception as e:
+                    if 'already a member' in str(e).lower() or 'member of group' in str(e).lower():
+                        print(f"   ℹ️  Already in group: {user['group']}")
+                    else:
+                        print(f"   ⚠️  Error adding to group: {e}")
             except Exception as e:
                 if 'already exists' in str(e).lower():
                     print(f"ℹ️  Test user already exists: {email}")
@@ -495,11 +542,15 @@ if __name__ == '__main__':
     print(f"   • /app/lakehouse-agent/cognito-region")
     
     print(f"\n👥 Test Users Created:")
-    print(f"   • user001@example.com (username: user001@example.com)")
-    print(f"   • user002@example.com (username: user002@example.com)")
-    print(f"   • adjuster001@example.com (username: adjuster001@example.com)")
+    print(f"   • user001@example.com (username: user001@example.com) → users group")
+    print(f"   • user002@example.com (username: user002@example.com) → users group")
+    print(f"   • adjuster001@example.com (username: adjuster001@example.com) → adjusters group")
     print(f"   Default password: TempPass123!")
     print(f"   Note: Users will be prompted to change password on first login")
+    
+    print(f"\n👥 Cognito Groups:")
+    print(f"   • users - Regular users group")
+    print(f"   • adjusters - Claims adjusters group")
     
     print(f"\n🔑 App Clients:")
     print(f"   1. lakehouse-client (ID: {result['client_id']})")

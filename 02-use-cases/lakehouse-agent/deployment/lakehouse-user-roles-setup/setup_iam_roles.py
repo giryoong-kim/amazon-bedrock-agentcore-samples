@@ -3,8 +3,8 @@
 IAM Roles Setup Script for Lakehouse Agent
 
 This script creates IAM roles for tenant-based access control:
-1. Creates lakehouse-tenant-1 role
-2. Creates lakehouse-tenant-2 role
+1. Creates lakehouse-users-role
+2. Creates lakehouse-adjusters-role
 3. Configures trust policies for AgentCore Runtime
 4. Attaches necessary permissions for Athena and S3 access
 
@@ -43,7 +43,7 @@ class IAMRolesSetup:
         self.ssm_client = boto3.client('ssm', region_name=self.region)
         
         # Role names
-        self.tenant_roles = ['lakehouse-tenant-1', 'lakehouse-tenant-2']
+        self.tenant_roles = ['lakehouse-users-role', 'lakehouse-adjusters-role']
         
     def get_trust_policy(self) -> Dict[str, Any]:
         """
@@ -202,10 +202,10 @@ class IAMRolesSetup:
             response = self.iam_client.create_role(
                 RoleName=role_name,
                 AssumeRolePolicyDocument=json.dumps(trust_policy),
-                Description=f'Tenant role for lakehouse agent access control - {role_name}',
+                Description=f'IAM role for {role_name} group in lakehouse agent',
                 Tags=[
                     {'Key': 'Application', 'Value': 'lakehouse-agent'},
-                    {'Key': 'Tenant', 'Value': role_name}
+                    {'Key': 'Group', 'Value': role_name}
                 ]
             )
             
@@ -296,7 +296,7 @@ class IAMRolesSetup:
         athena_s3_policy = self.get_athena_s3_policy(bucket_name)
         
         # Create roles and attach policies
-        print("\n👤 Creating tenant roles...")
+        print("\n👤 Creating group roles...")
         role_arns = {}
         
         for role_name in self.tenant_roles:
