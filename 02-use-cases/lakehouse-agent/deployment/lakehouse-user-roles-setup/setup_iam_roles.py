@@ -3,10 +3,11 @@
 IAM Roles Setup Script for Lakehouse Agent
 
 This script creates IAM roles for tenant-based access control:
-1. Creates lakehouse-users-role
+1. Creates lakehouse-policyholders-role
 2. Creates lakehouse-adjusters-role
-3. Configures trust policies for AgentCore Runtime
-4. Attaches necessary permissions for Athena and S3 access
+3. Creates lakehouse-administrators-role
+4. Configures trust policies for AgentCore Runtime
+5. Attaches necessary permissions for Athena and S3 access
 
 Usage:
     python setup_iam_roles.py
@@ -43,7 +44,7 @@ class IAMRolesSetup:
         self.ssm_client = boto3.client('ssm', region_name=self.region)
         
         # Role names
-        self.tenant_roles = ['lakehouse-users-role', 'lakehouse-adjusters-role']
+        self.tenant_roles = ['lakehouse-policyholders-role', 'lakehouse-adjusters-role', 'lakehouse-administrators-role']
         
     def get_trust_policy(self) -> Dict[str, Any]:
         """
@@ -178,6 +179,35 @@ class IAMRolesSetup:
             ]
         }
     
+    def get_admin_policy(self, bucket_name: str) -> Dict[str, Any]:
+        """
+        Create policy for administrators with additional DynamoDB access for audit logs.
+        
+        Args:
+            bucket_name: S3 bucket name for data access
+            
+        Returns:
+            IAM policy document with admin permissions
+        """
+        # Start with base Athena/S3 policy
+        base_policy = self.get_athena_s3_policy(bucket_name)
+        
+        # Add DynamoDB access for login audit logs
+        base_policy["Statement"].append({
+            "Sid": "DynamoDBLoginAuditAccess",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:Query",
+                "dynamodb:Scan"
+            ],
+            "Resource": [
+                f"arn:aws:dynamodb:{self.region}:{self.account_id}:table/lakehouse_user_login_audit"
+            ]
+        })
+        
+        return base_policy
+    
     def create_role(self, role_name: str, trust_policy: Dict[str, Any]) -> str:
         """
         Create IAM role with trust policy.
@@ -295,6 +325,9 @@ class IAMRolesSetup:
         # Create Athena/S3 access policy
         athena_s3_policy = self.get_athena_s3_policy(bucket_name)
         
+        # Create admin policy with additional DynamoDB access
+        admin_policy = self.get_admin_policy(bucket_name)
+        
         # Create roles and attach policies
         print("\n👤 Creating group roles...")
         role_arns = {}
@@ -304,9 +337,14 @@ class IAMRolesSetup:
             role_arn = self.create_role(role_name, trust_policy)
             role_arns[role_name] = role_arn
             
-            # Attach inline policy
-            policy_name = f'{role_name}-athena-s3-access'
-            self.attach_inline_policy(role_name, policy_name, athena_s3_policy)
+            # Attach appropriate policy based on role
+            if 'administrators' in role_name:
+                policy_name = f'{role_name}-admin-access'
+                self.attach_inline_policy(role_name, policy_name, admin_policy)
+                print(f"   ✅ Attached admin policy with DynamoDB audit access")
+            else:
+                policy_name = f'{role_name}-athena-s3-access'
+                self.attach_inline_policy(role_name, policy_name, athena_s3_policy)
         
         # Store role ARNs in SSM
         self.store_role_arns_in_ssm(role_arns)
@@ -322,10 +360,14 @@ class IAMRolesSetup:
             print(f"   - /app/lakehouse-agent/roles/{role_name}")
         
         print(f"\n📋 Permissions granted:")
-        print(f"   - Athena query execution")
-        print(f"   - Glue catalog access")
-        print(f"   - S3 data access: s3://{bucket_name}")
-        print(f"   - S3 query results: s3://{bucket_name}/athena-results/")
+        print(f"   Policyholders & Adjusters:")
+        print(f"     - Athena query execution")
+        print(f"     - Glue catalog access")
+        print(f"     - S3 data access: s3://{bucket_name}")
+        print(f"     - S3 query results: s3://{bucket_name}/athena-results/")
+        print(f"   Administrators (additional):")
+        print(f"     - DynamoDB login audit access (lakehouse_user_login_audit)")
+        print(f"     - Can query user login history via MCP tool")
 
 def main():
     parser = argparse.ArgumentParser(

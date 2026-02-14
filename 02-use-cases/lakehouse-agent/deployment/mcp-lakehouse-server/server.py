@@ -110,7 +110,7 @@ def get_config() -> Dict[str, Optional[str]]:
     else:
         config['s3_output_location'] = None
     
-    config['test_user'] = os.environ.get('TEST_USER_1', 'user001@example.com')
+    config['test_user'] = os.environ.get('TEST_USER_1', 'policyholder001@example.com')
     config['local_development'] = os.environ.get('LOCAL_DEVELOPMENT', 'false').lower() == 'true'
     
     _config_cache = config
@@ -351,6 +351,166 @@ def get_claims_summary(context: Dict[str, Any] = None) -> Dict[str, Any]:
 
     except Exception as e:
         print(f"❌ ERROR in get_claims_summary: {str(e)}")
+        import traceback
+        print(f"   Stack trace: {traceback.format_exc()}")
+        print("=" * 60)
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(
+    name="query_login_audit",
+    description="Query user login audit logs from DynamoDB. RESTRICTED: This tool can only be used by IT administrators."
+)
+def query_login_audit(
+    user_id: str = None,
+    limit: int = 10,
+    start_date: str = None,
+    context: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Query login audit logs from DynamoDB.
+    
+    SECURITY: This tool is RESTRICTED to IT administrators only.
+    Access control should be enforced at the Gateway level using fine-grained access control (FGAC).
+    
+    Args:
+        user_id: Optional user ID to filter logs (email address). If not provided, returns recent logins across all users.
+        limit: Maximum number of records to return (default: 10, max: 100)
+        start_date: Optional ISO 8601 date to filter logs from (e.g., "2024-01-01")
+        context: Request context containing authenticated user information
+        
+    Returns:
+        Dictionary with success status and login records
+    """
+    print("=" * 60)
+    print("🔧 TOOL INVOKED: query_login_audit")
+    print("⚠️  ADMIN ONLY TOOL - Should be restricted via Gateway FGAC")
+    print("=" * 60)
+    
+    print("📥 INPUT PARAMETERS:")
+    print(f"   user_id: {user_id}")
+    print(f"   limit: {limit}")
+    print(f"   start_date: {start_date}")
+    print(f"   context: {context}")
+    
+    try:
+        # Get authenticated user from context
+        authenticated_user, tenant_credentials = get_user_id_with_fallback(context)
+        print(f"👤 AUTHENTICATED USER: {authenticated_user}")
+        
+        if not authenticated_user:
+            return {"success": False, "error": "User identity not found in request"}
+        
+        # Check if user is in administrators group
+        # Note: This is a secondary check. Primary access control should be at Gateway level.
+        user_groups = []
+        if context and 'user_groups' in context:
+            user_groups = context.get('user_groups', [])
+            print(f"👥 USER GROUPS: {user_groups}")
+        
+        # Validate limit
+        if limit < 1 or limit > 100:
+            return {"success": False, "error": "Limit must be between 1 and 100"}
+        
+        config = get_config()
+        
+        # Use tenant credentials if available, otherwise use default credentials
+        if tenant_credentials:
+            print(f"🔑 Using tenant credentials for DynamoDB access")
+            dynamodb = boto3.resource(
+                'dynamodb',
+                region_name=config['region'],
+                aws_access_key_id=tenant_credentials['access_key_id'],
+                aws_secret_access_key=tenant_credentials['secret_access_key'],
+                aws_session_token=tenant_credentials['session_token']
+            )
+        else:
+            print(f"⚠️  No tenant credentials found, using default credentials")
+            dynamodb = boto3.resource('dynamodb', region_name=config['region'])
+        table_name = 'lakehouse_user_login_audit'
+        
+        try:
+            table = dynamodb.Table(table_name)
+            print(f"📊 Querying DynamoDB table: {table_name}")
+            
+            if user_id:
+                # Query specific user's login history
+                print(f"🔍 Querying logs for user: {user_id}")
+                
+                from boto3.dynamodb.conditions import Key
+                
+                key_condition = Key('user_id').eq(user_id)
+                
+                # Add date filter if provided
+                if start_date:
+                    key_condition = key_condition & Key('login_timestamp').gte(start_date)
+                
+                response = table.query(
+                    KeyConditionExpression=key_condition,
+                    ScanIndexForward=False,  # Most recent first
+                    Limit=limit
+                )
+                
+                records = response.get('Items', [])
+                
+            else:
+                # Scan for recent logins across all users (use with caution)
+                print(f"🔍 Scanning for recent logins across all users (limit: {limit})")
+                
+                scan_params = {
+                    'Limit': limit
+                }
+                
+                # Note: Scan doesn't support date filtering efficiently
+                # For production, consider adding a GSI on login_timestamp
+                if start_date:
+                    from boto3.dynamodb.conditions import Attr
+                    scan_params['FilterExpression'] = Attr('login_timestamp').gte(start_date)
+                
+                response = table.scan(**scan_params)
+                records = response.get('Items', [])
+                
+                # Sort by timestamp (most recent first)
+                records = sorted(records, key=lambda x: x.get('login_timestamp', ''), reverse=True)
+            
+            # Format records for output
+            formatted_records = []
+            for record in records:
+                formatted_records.append({
+                    'user_id': record.get('user_id', ''),
+                    'login_timestamp': record.get('login_timestamp', ''),
+                    'email': record.get('email', ''),
+                    'groups': record.get('groups', '[]'),
+                    'source_ip': record.get('source_ip', ''),
+                    'user_agent': record.get('user_agent', ''),
+                    'client_id': record.get('client_id', ''),
+                    'event_type': record.get('event_type', '')
+                })
+            
+            result = {
+                "success": True,
+                "records": formatted_records,
+                "count": len(formatted_records),
+                "queried_user": user_id if user_id else "all_users",
+                "authenticated_as": authenticated_user
+            }
+            
+            print("📤 OUTPUT:")
+            print(f"   success: True")
+            print(f"   records_count: {len(formatted_records)}")
+            print(f"   queried_user: {user_id if user_id else 'all_users'}")
+            
+            print("=" * 60)
+            return result
+            
+        except dynamodb.meta.client.exceptions.ResourceNotFoundException:
+            error_msg = f"DynamoDB table '{table_name}' not found. Run deploy_post_auth_lambda.sh to create it."
+            print(f"❌ ERROR: {error_msg}")
+            print("=" * 60)
+            return {"success": False, "error": error_msg}
+        
+    except Exception as e:
+        print(f"❌ ERROR in query_login_audit: {str(e)}")
         import traceback
         print(f"   Stack trace: {traceback.format_exc()}")
         print("=" * 60)

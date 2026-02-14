@@ -37,7 +37,10 @@ SSM Parameters created:
 
 ### Step 2: Deploy Cognito
 
-Creates User Pool, OAuth clients, groups (users, adjusters), and test users.
+### Step 2: Deploy Cognito
+
+Creates User Pool, OAuth clients, groups (policyholders, adjusters, administrators), and test users.
+Automatically configures Post-Authentication trigger if Lambda exists.
 
 ```bash
 cd ../cognito-setup
@@ -48,15 +51,50 @@ SSM Parameters created:
 - `/app/lakehouse-agent/cognito-user-pool-id`
 - `/app/lakehouse-agent/cognito-user-pool-arn`
 - `/app/lakehouse-agent/cognito-app-client-id`
-- `/app/lakehouse-agent/cognito-app-client-secret`
+- `/app/lakehouse-agent/cognito-app-client-secret` (SecureString)
 - `/app/lakehouse-agent/cognito-m2m-client-id`
-- `/app/lakehouse-agent/cognito-m2m-client-secret`
+- `/app/lakehouse-agent/cognito-m2m-client-secret` (SecureString)
 - `/app/lakehouse-agent/cognito-domain`
+- `/app/lakehouse-agent/cognito-resource-server-id`
+- `/app/lakehouse-agent/cognito-region`
 
 Test users created:
-- `user001@example.com` → users group
-- `user002@example.com` → users group
+- `policyholder001@example.com` → policyholders group
+- `policyholder002@example.com` → policyholders group
 - `adjuster001@example.com` → adjusters group
+- `adjuster002@example.com` → adjusters group
+- `admin@example.com` → administrators group
+
+Default password: `TempPass123!`
+
+#### Optional: Enable Login Audit Logging
+
+To enable login audit logging, deploy the Post-Authentication Lambda before running setup_cognito.py:
+
+```bash
+# Deploy Lambda and DynamoDB table first
+bash deploy_post_auth_lambda.sh
+
+# Then run setup (will automatically configure the trigger)
+python setup_cognito.py
+```
+
+Or add the trigger to an existing User Pool:
+
+```bash
+# Deploy Lambda if not already deployed
+bash deploy_post_auth_lambda.sh
+
+# Add trigger to existing pool
+python setup_cognito.py --add-post-auth-trigger
+```
+
+This creates:
+- DynamoDB table: `lakehouse_user_login_audit`
+- Lambda function: `lakehouse-cognito-post-auth`
+- IAM role: `lakehouse-cognito-post-auth-role`
+
+See [POST_AUTH_SETUP.md](cognito-setup/POST_AUTH_SETUP.md) for details.
 
 ---
 

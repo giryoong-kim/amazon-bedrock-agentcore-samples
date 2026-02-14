@@ -85,15 +85,61 @@ class AthenaSetup:
                 print(f"❌ Error creating bucket: {e}")
                 sys.exit(1)
 
+    def cleanup_s3_data(self):
+        """Delete existing data from S3 bucket to allow rerun."""
+        print(f"\n🧹 Cleaning up existing S3 data...")
+        
+        prefixes_to_clean = [self.claims_prefix, self.users_prefix]
+        
+        for prefix in prefixes_to_clean:
+            try:
+                # List and delete objects with this prefix
+                paginator = self.s3_client.get_paginator('list_objects_v2')
+                pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+                
+                objects_to_delete = []
+                for page in pages:
+                    if 'Contents' in page:
+                        for obj in page['Contents']:
+                            objects_to_delete.append({'Key': obj['Key']})
+                
+                if objects_to_delete:
+                    self.s3_client.delete_objects(
+                        Bucket=self.bucket_name,
+                        Delete={'Objects': objects_to_delete}
+                    )
+                    print(f"✅ Deleted {len(objects_to_delete)} objects from {prefix}")
+                else:
+                    print(f"ℹ️  No existing objects found in {prefix}")
+                    
+            except self.s3_client.exceptions.NoSuchBucket:
+                print(f"ℹ️  Bucket does not exist yet, skipping cleanup for {prefix}")
+            except Exception as e:
+                print(f"⚠️  Warning cleaning up {prefix}: {e}")
+
+    def drop_existing_tables(self):
+        """Drop existing Athena tables to allow recreation."""
+        print(f"\n🗑️  Dropping existing tables...")
+        
+        tables_to_drop = ['claims', 'users']
+        
+        for table in tables_to_drop:
+            try:
+                drop_query = f"DROP TABLE IF EXISTS {self.database_name}.{table}"
+                self.run_athena_query(drop_query)
+                print(f"✅ Dropped table: {table}")
+            except Exception as e:
+                print(f"⚠️  Warning dropping table {table}: {e}")
+
     def get_sample_claims_data(self) -> List[Dict[str, Any]]:
-        """Generate sample claims data."""
-        return [
-            # Claims for user001@example.com (John Doe)
+        """Generate sample claims data with assigned adjusters."""
+        claims = [
+            # Claims for policyholder001@example.com (John Doe)
             {
                 'claim_id': 'CLM-2024-001',
-                'user_id': 'user001@example.com',
-                'patient_name': 'John Doe',
-                'patient_dob': '1985-03-15',
+                'user_id': 'policyholder001@example.com',
+                'policyholder_name': 'John Doe',
+                'policyholder_dob': '1985-03-15',
                 'claim_date': '2024-01-10',
                 'claim_amount': '1250.00',
                 'claim_type': 'medical',
@@ -107,15 +153,16 @@ class AthenaSetup:
                 'approved_amount': '1000.00',
                 'denial_reason': '',
                 'notes': 'Annual physical examination and lab work',
-                'created_by': 'user001@example.com',
+                'created_by': 'policyholder001@example.com',
                 'last_modified_by': 'adjuster001@example.com',
-                'last_modified_date': '2024-01-15 14:20:00'
+                'last_modified_date': '2024-01-15 14:20:00',
+                'adjuster_user_id': 'adjuster001@example.com'
             },
             {
                 'claim_id': 'CLM-2024-002',
-                'user_id': 'user001@example.com',
-                'patient_name': 'John Doe',
-                'patient_dob': '1985-03-15',
+                'user_id': 'policyholder001@example.com',
+                'policyholder_name': 'John Doe',
+                'policyholder_dob': '1985-03-15',
                 'claim_date': '2024-02-05',
                 'claim_amount': '85.50',
                 'claim_type': 'prescription',
@@ -129,15 +176,16 @@ class AthenaSetup:
                 'approved_amount': '85.50',
                 'denial_reason': '',
                 'notes': 'Diabetes medication - monthly refill',
-                'created_by': 'user001@example.com',
+                'created_by': 'policyholder001@example.com',
                 'last_modified_by': 'adjuster001@example.com',
-                'last_modified_date': '2024-02-06 10:15:00'
+                'last_modified_date': '2024-02-06 10:15:00',
+                'adjuster_user_id': 'adjuster001@example.com'
             },
             {
                 'claim_id': 'CLM-2024-003',
-                'user_id': 'user001@example.com',
-                'patient_name': 'John Doe',
-                'patient_dob': '1985-03-15',
+                'user_id': 'policyholder001@example.com',
+                'policyholder_name': 'John Doe',
+                'policyholder_dob': '1985-03-15',
                 'claim_date': '2024-02-20',
                 'claim_amount': '3500.00',
                 'claim_type': 'hospital',
@@ -150,16 +198,17 @@ class AthenaSetup:
                 'processed_date': '',
                 'approved_amount': '',
                 'denial_reason': '',
-                'notes': 'Emergency room visit for back pain, including X-rays',
-                'created_by': 'user001@example.com',
-                'last_modified_by': 'user001@example.com',
-                'last_modified_date': '2024-02-21 08:00:00'
+                'notes': 'Emergency room visit for back pain including X-rays',
+                'created_by': 'policyholder001@example.com',
+                'last_modified_by': 'adjuster002@example.com',
+                'last_modified_date': '2024-02-21 08:00:00',
+                'adjuster_user_id': 'adjuster002@example.com'
             },
             {
                 'claim_id': 'CLM-2024-004',
-                'user_id': 'user001@example.com',
-                'patient_name': 'John Doe',
-                'patient_dob': '1985-03-15',
+                'user_id': 'policyholder001@example.com',
+                'policyholder_name': 'John Doe',
+                'policyholder_dob': '1985-03-15',
                 'claim_date': '2024-03-10',
                 'claim_amount': '450.00',
                 'claim_type': 'medical',
@@ -173,16 +222,17 @@ class AthenaSetup:
                 'approved_amount': '',
                 'denial_reason': '',
                 'notes': 'Dental examination and cleaning',
-                'created_by': 'user001@example.com',
-                'last_modified_by': 'user001@example.com',
-                'last_modified_date': '2024-03-11 11:20:00'
+                'created_by': 'policyholder001@example.com',
+                'last_modified_by': 'adjuster001@example.com',
+                'last_modified_date': '2024-03-11 11:20:00',
+                'adjuster_user_id': 'adjuster001@example.com'
             },
-            # Claims for user002@example.com (Jane Smith)
+            # Claims for policyholder002@example.com (Jane Smith)
             {
                 'claim_id': 'CLM-2024-005',
-                'user_id': 'user002@example.com',
-                'patient_name': 'Jane Smith',
-                'patient_dob': '1990-07-22',
+                'user_id': 'policyholder002@example.com',
+                'policyholder_name': 'Jane Smith',
+                'policyholder_dob': '1990-07-22',
                 'claim_date': '2024-01-15',
                 'claim_amount': '850.00',
                 'claim_type': 'medical',
@@ -196,15 +246,16 @@ class AthenaSetup:
                 'approved_amount': '680.00',
                 'denial_reason': '',
                 'notes': 'Annual gynecological exam and preventive care',
-                'created_by': 'user002@example.com',
-                'last_modified_by': 'adjuster001@example.com',
-                'last_modified_date': '2024-01-18 15:30:00'
+                'created_by': 'policyholder002@example.com',
+                'last_modified_by': 'adjuster002@example.com',
+                'last_modified_date': '2024-01-18 15:30:00',
+                'adjuster_user_id': 'adjuster002@example.com'
             },
             {
                 'claim_id': 'CLM-2024-006',
-                'user_id': 'user002@example.com',
-                'patient_name': 'Jane Smith',
-                'patient_dob': '1990-07-22',
+                'user_id': 'policyholder002@example.com',
+                'policyholder_name': 'Jane Smith',
+                'policyholder_dob': '1990-07-22',
                 'claim_date': '2024-02-10',
                 'claim_amount': '125.00',
                 'claim_type': 'prescription',
@@ -218,15 +269,16 @@ class AthenaSetup:
                 'approved_amount': '125.00',
                 'denial_reason': '',
                 'notes': 'Antibiotic prescription for eye infection',
-                'created_by': 'user002@example.com',
+                'created_by': 'policyholder002@example.com',
                 'last_modified_by': 'adjuster001@example.com',
-                'last_modified_date': '2024-02-11 09:00:00'
+                'last_modified_date': '2024-02-11 09:00:00',
+                'adjuster_user_id': 'adjuster001@example.com'
             },
             {
                 'claim_id': 'CLM-2024-007',
-                'user_id': 'user002@example.com',
-                'patient_name': 'Jane Smith',
-                'patient_dob': '1990-07-22',
+                'user_id': 'policyholder002@example.com',
+                'policyholder_name': 'Jane Smith',
+                'policyholder_dob': '1990-07-22',
                 'claim_date': '2024-02-25',
                 'claim_amount': '12500.00',
                 'claim_type': 'hospital',
@@ -240,17 +292,18 @@ class AthenaSetup:
                 'approved_amount': '10000.00',
                 'denial_reason': '',
                 'notes': 'Childbirth and postpartum care',
-                'created_by': 'user002@example.com',
+                'created_by': 'policyholder002@example.com',
                 'last_modified_by': 'adjuster002@example.com',
-                'last_modified_date': '2024-03-05 16:00:00'
+                'last_modified_date': '2024-03-05 16:00:00',
+                'adjuster_user_id': 'adjuster002@example.com'
             },
             {
                 'claim_id': 'CLM-2024-008',
-                'user_id': 'user002@example.com',
-                'patient_name': 'Jane Smith',
-                'patient_dob': '1990-07-22',
+                'user_id': 'policyholder002@example.com',
+                'policyholder_name': 'Jane Smith',
+                'policyholder_dob': '1990-07-22',
                 'claim_date': '2024-03-15',
-                'claim_amount': '2000.00',
+                'claim_amount': '200.00',
                 'claim_type': 'medical',
                 'claim_status': 'denied',
                 'provider_name': 'Cosmetic Surgery Center',
@@ -262,49 +315,52 @@ class AthenaSetup:
                 'approved_amount': '0.00',
                 'denial_reason': 'Cosmetic procedures not covered by policy',
                 'notes': 'Facial cosmetic procedure',
-                'created_by': 'user002@example.com',
-                'last_modified_by': 'adjuster002@example.com',
-                'last_modified_date': '2024-03-20 11:00:00'
+                'created_by': 'policyholder002@example.com',
+                'last_modified_by': 'adjuster001@example.com',
+                'last_modified_date': '2024-03-20 11:00:00',
+                'adjuster_user_id': 'adjuster001@example.com'
             },
-            # Claims for adjuster001@example.com
             {
                 'claim_id': 'CLM-2024-009',
-                'user_id': 'adjuster001@example.com',
-                'patient_name': 'Michael Johnson',
-                'patient_dob': '1978-11-30',
-                'claim_date': '2024-01-20',
-                'claim_amount': '500.00',
-                'claim_type': 'medical',
-                'claim_status': 'approved',
-                'provider_name': 'Quick Care Clinic',
-                'provider_npi': '1231231234',
-                'diagnosis_code': 'J20.9',
-                'procedure_code': '99214',
-                'submitted_date': '2024-01-21 08:00:00',
-                'processed_date': '2024-01-22 10:00:00',
-                'approved_amount': '500.00',
+                'user_id': 'policyholder002@example.com',
+                'policyholder_name': 'Jane Smith',
+                'policyholder_dob': '1990-07-22',
+                'claim_date': '2024-03-25',
+                'claim_amount': '75.00',
+                'claim_type': 'prescription',
+                'claim_status': 'pending',
+                'provider_name': 'Target Pharmacy',
+                'provider_npi': '9988776655',
+                'diagnosis_code': 'Z79.890',
+                'procedure_code': '90715',
+                'submitted_date': '2024-03-26 09:45:00',
+                'processed_date': '',
+                'approved_amount': '',
                 'denial_reason': '',
-                'notes': 'Urgent care visit for bronchitis',
-                'created_by': 'adjuster001@example.com',
+                'notes': 'Vitamin supplements and prenatal care',
+                'created_by': 'policyholder002@example.com',
                 'last_modified_by': 'adjuster002@example.com',
-                'last_modified_date': '2024-01-22 10:00:00'
+                'last_modified_date': '2024-03-26 09:45:00',
+                'adjuster_user_id': 'adjuster002@example.com'
             }
         ]
+        
+        return claims
 
     def get_sample_users_data(self) -> List[Dict[str, Any]]:
         """Generate sample users data."""
         return [
             {
-                'user_id': 'user001@example.com',
+                'user_id': 'policyholder001@example.com',
                 'user_name': 'John Doe',
-                'user_role': 'patient',
+                'user_role': 'policyholder',
                 'department': 'Individual',
                 'created_date': '2023-01-15 00:00:00'
             },
             {
-                'user_id': 'user002@example.com',
+                'user_id': 'policyholder002@example.com',
                 'user_name': 'Jane Smith',
-                'user_role': 'patient',
+                'user_role': 'policyholder',
                 'department': 'Individual',
                 'created_date': '2023-02-20 00:00:00'
             },
@@ -446,7 +502,23 @@ class AthenaSetup:
         # Step 1: Create S3 bucket
         self.create_s3_bucket()
 
-        # Step 2: Upload sample data
+        # Step 2: Cleanup existing data (for rerunnable deployments)
+        self.cleanup_s3_data()
+
+        # Step 3: Drop existing tables (for rerunnable deployments)
+        # First ensure database exists for drop queries
+        print("\n🗄️  Ensuring Athena database exists...")
+        create_db_query = f"CREATE DATABASE IF NOT EXISTS {self.database_name}"
+        try:
+            self.run_athena_query(create_db_query)
+            print(f"✅ Database {self.database_name} ready")
+        except Exception as e:
+            print(f"❌ Error creating database: {e}")
+            return
+
+        self.drop_existing_tables()
+
+        # Step 4: Upload sample data
         print("\n📤 Uploading sample data to S3...")
         claims_data = self.get_sample_claims_data()
         users_data = self.get_sample_users_data()
@@ -454,24 +526,14 @@ class AthenaSetup:
         self.upload_csv_to_s3(claims_data, f'{self.claims_prefix}claims.csv')
         self.upload_csv_to_s3(users_data, f'{self.users_prefix}users.csv')
 
-        # Step 3: Create Athena database
-        print("\n🗄️  Creating Athena database...")
-        create_db_query = f"CREATE DATABASE IF NOT EXISTS {self.database_name}"
-        try:
-            self.run_athena_query(create_db_query)
-            print(f"✅ Database {self.database_name} created")
-        except Exception as e:
-            print(f"❌ Error creating database: {e}")
-            return
-
-        # Step 4: Create claims table
+        # Step 5: Create claims table
         print("\n📊 Creating claims table...")
         create_claims_table_query = f"""
         CREATE EXTERNAL TABLE IF NOT EXISTS {self.database_name}.claims (
             claim_id STRING,
             user_id STRING,
-            patient_name STRING,
-            patient_dob STRING,
+            policyholder_name STRING,
+            policyholder_dob STRING,
             claim_date STRING,
             claim_amount STRING,
             claim_type STRING,
@@ -487,7 +549,8 @@ class AthenaSetup:
             notes STRING,
             created_by STRING,
             last_modified_by STRING,
-            last_modified_date STRING
+            last_modified_date STRING,
+            adjuster_user_id STRING
         )
         ROW FORMAT DELIMITED
         FIELDS TERMINATED BY ','
@@ -502,7 +565,7 @@ class AthenaSetup:
             print(f"❌ Error creating claims table: {e}")
             return
 
-        # Step 5: Create users table
+        # Step 6: Create users table
         print("\n👥 Creating users table...")
         create_users_table_query = f"""
         CREATE EXTERNAL TABLE IF NOT EXISTS {self.database_name}.users (
@@ -525,7 +588,7 @@ class AthenaSetup:
             print(f"❌ Error creating users table: {e}")
             return
 
-        # Step 6: Verify setup with test query
+        # Step 7: Verify setup with test query
         print("\n🔍 Verifying setup with test queries...")
         try:
             # Count claims
@@ -533,28 +596,31 @@ class AthenaSetup:
             self.run_athena_query(count_query)
             print("✅ Claims table verification successful")
 
-            # Query claims for user001
-            user_query = f"SELECT claim_id, claim_type, claim_status FROM {self.database_name}.claims WHERE user_id = 'user001@example.com' LIMIT 5"
+            # Query claims for policyholder001
+            user_query = f"SELECT claim_id, claim_type, claim_status FROM {self.database_name}.claims WHERE user_id = 'policyholder001@example.com' LIMIT 5"
             self.run_athena_query(user_query)
             print("✅ User-specific query successful")
 
         except Exception as e:
             print(f"⚠️  Verification query failed: {e}")
 
-        # Step 7: Store configuration in SSM Parameter Store
+        # Step 8: Store configuration in SSM Parameter Store
         self.store_parameters_in_ssm()
 
         print("\n✨ Athena setup completed successfully!")
-        print(f"\n�  Database name: {self.database_name}")
+        print(f"\n📋 Database name: {self.database_name}")
         print(f"📁 S3 bucket: s3://{self.bucket_name}")
         print(f"📊 Tables created: claims, users")
         print(f"💾 SSM Parameters:")
         print(f"   - /app/lakehouse-agent/s3-bucket-name")
         print(f"   - /app/lakehouse-agent/database-name")
         print(f"\n🔐 Row-level access control ready:")
-        print(f"   - user001@example.com: {len([c for c in claims_data if c['user_id'] == 'user001@example.com'])} claims")
-        print(f"   - user002@example.com: {len([c for c in claims_data if c['user_id'] == 'user002@example.com'])} claims")
+        print(f"   - policyholder001@example.com: {len([c for c in claims_data if c['user_id'] == 'policyholder001@example.com'])} claims")
+        print(f"   - policyholder002@example.com: {len([c for c in claims_data if c['user_id'] == 'policyholder002@example.com'])} claims")
         print(f"   - adjuster001@example.com: {len([c for c in claims_data if c['user_id'] == 'adjuster001@example.com'])} claims")
+        print(f"\n👤 Adjuster assignments:")
+        print(f"   - adjuster001@example.com: {len([c for c in claims_data if c['adjuster_user_id'] == 'adjuster001@example.com'])} claims assigned")
+        print(f"   - adjuster002@example.com: {len([c for c in claims_data if c['adjuster_user_id'] == 'adjuster002@example.com'])} claims assigned")
 
 def main():
     parser = argparse.ArgumentParser(

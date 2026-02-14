@@ -117,7 +117,7 @@ This system showcases a lakehouse data processing application with:
 1. User Login
    Streamlit UI → Cognito → Returns JWT with user identity
    JWT contains: {
-     "email": "user001@example.com",
+     "email": "policyholder001@example.com",
      "scope": "lakehouse-api/claims.query"
    }
 
@@ -151,9 +151,9 @@ This system showcases a lakehouse data processing application with:
    Interceptor Lambda:
    - Validates JWT signature ✓
    - Checks token expiration ✓
-   - Extracts user identity: "user001@example.com"
+   - Extracts user identity: "policyholder001@example.com"
    - Validates scope: "claims.query" ✓
-   - Adds header: X-User-Principal: user001@example.com
+   - Adds header: X-User-Principal: policyholder001@example.com
 
    Gateway → MCP Server (with user context)
 
@@ -313,7 +313,7 @@ Each notebook:
 - **MCP Server**: Tool execution layer on AgentCore Runtime
 - **Gateway**: Request routing with JWT validation
 - **Agent**: Conversational AI on AgentCore Runtime
-- **Test Users**: user001@example.com, user002@example.com (password: TempPass123!)
+- **Test Users**: policyholder001@example.com, policyholder002@example.com (password: TempPass123!)
 
 ### Cleanup
 
@@ -628,7 +628,7 @@ Expected:
 ```
 INFO Bearer token extracted from MCP gateway request
 INFO Token validation successful
-INFO User: user001@example.com
+INFO User: policyholder001@example.com
 ```
 
 ---

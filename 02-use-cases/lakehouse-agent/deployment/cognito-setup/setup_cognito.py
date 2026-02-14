@@ -24,6 +24,7 @@ class CognitoSetup:
         self.cognito = boto3.client('cognito-idp', region_name=self.region)
         self.ssm = boto3.client('ssm', region_name=self.region)
         self.sts = boto3.client('sts', region_name=self.region)
+        self.lambda_client = boto3.client('lambda', region_name=self.region)
         self.env_file = Path(__file__).parent.parent / '.env'
         
         print(f"Initialized Cognito setup for region: {self.region}")
@@ -356,8 +357,9 @@ class CognitoSetup:
 
         # Create Cognito groups (if not exist)
         groups = [
-            {'name': 'users', 'description': 'Regular users group'},
-            {'name': 'adjusters', 'description': 'Claims adjusters group'}
+            {'name': 'policyholders', 'description': 'Policy holders group'},
+            {'name': 'adjusters', 'description': 'Claims adjusters group'},
+            {'name': 'administrators', 'description': 'Administrators group'}
         ]
         
         for group in groups:
@@ -378,9 +380,11 @@ class CognitoSetup:
 
         # Create test users with email as username (skip if already exist)
         test_users = [
-            {'email': 'user001@example.com', 'name': 'User 001', 'group': 'users'},
-            {'email': 'user002@example.com', 'name': 'User 002', 'group': 'users'},
-            {'email': 'adjuster001@example.com', 'name': 'Adjuster 001', 'group': 'adjusters'}
+            {'email': 'policyholder001@example.com', 'name': 'Policyholder 001', 'group': 'policyholders'},
+            {'email': 'policyholder002@example.com', 'name': 'Policyholder 002', 'group': 'policyholders'},
+            {'email': 'adjuster001@example.com', 'name': 'Adjuster 001', 'group': 'adjusters'},
+            {'email': 'adjuster002@example.com', 'name': 'Adjuster 002', 'group': 'adjusters'},
+            {'email': 'admin@example.com', 'name': 'Admin', 'group': 'administrators'}
         ]
         
         for user in test_users:
@@ -451,6 +455,9 @@ class CognitoSetup:
         # Write to .env file (deprecated, for backward compatibility)
         self.write_to_env(result)
         
+        # Automatically try to configure post-auth trigger if Lambda exists
+        self.add_post_auth_trigger(user_pool_id=user_pool_id)
+        
         return result
     
     def create_m2m_client(self, user_pool_id: str) -> Dict:
@@ -518,8 +525,94 @@ class CognitoSetup:
             'client_secret': client_secret
         }
 
+    def add_post_auth_trigger(self, user_pool_id: str = None, lambda_name: str = 'lakehouse-cognito-post-auth'):
+        """
+        Add Post-Authentication Lambda trigger to Cognito User Pool.
+        
+        Args:
+            user_pool_id: Cognito User Pool ID (if None, reads from SSM)
+            lambda_name: Name of the Lambda function to use as trigger
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        print(f"\n🔗 Configuring Post-Authentication Lambda trigger...")
+        
+        # Get User Pool ID from SSM if not provided
+        if not user_pool_id:
+            try:
+                response = self.ssm.get_parameter(Name='/app/lakehouse-agent/cognito-user-pool-id')
+                user_pool_id = response['Parameter']['Value']
+                print(f"ℹ️  Retrieved User Pool ID from SSM: {user_pool_id}")
+            except Exception as e:
+                print(f"❌ Error retrieving User Pool ID from SSM: {e}")
+                print(f"   Please provide user_pool_id or run setup_cognito.py first")
+                return False
+        
+        # Check if Lambda function exists
+        try:
+            self.lambda_client.get_function(FunctionName=lambda_name)
+            print(f"✅ Lambda function exists: {lambda_name}")
+        except self.lambda_client.exceptions.ResourceNotFoundException:
+            print(f"⚠️  Lambda function '{lambda_name}' not found")
+            print(f"   Skipping post-auth trigger configuration")
+            print(f"   To enable login audit logging, run:")
+            print(f"   1. bash deploy_post_auth_lambda.sh")
+            print(f"   2. python setup_cognito.py --add-post-auth-trigger")
+            return False
+        except Exception as e:
+            print(f"⚠️  Error checking Lambda function: {e}")
+            print(f"   Skipping post-auth trigger configuration")
+            return False
+        
+        # Get Lambda ARN
+        account_id = self.sts.get_caller_identity()['Account']
+        lambda_arn = f"arn:aws:lambda:{self.region}:{account_id}:function:{lambda_name}"
+        
+        try:
+            # Update User Pool with Lambda trigger
+            self.cognito.update_user_pool(
+                UserPoolId=user_pool_id,
+                LambdaConfig={
+                    'PostAuthentication': lambda_arn
+                }
+            )
+            print(f"✅ Post-Authentication trigger configured")
+            print(f"   Lambda: {lambda_name}")
+            print(f"   ARN: {lambda_arn}")
+            print(f"   Login events will be logged to DynamoDB table: lakehouse_user_login_audit")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error configuring trigger: {e}")
+            print(f"\n💡 Make sure:")
+            print(f"   1. Lambda function '{lambda_name}' exists")
+            print(f"   2. Lambda has permission for Cognito to invoke it")
+            print(f"   3. Run: bash deploy_post_auth_lambda.sh")
+            return False
+
 if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Setup Cognito User Pool for Lakehouse Agent')
+    parser.add_argument('--add-post-auth-trigger', action='store_true',
+                        help='Only add Post-Authentication Lambda trigger to existing User Pool (skip full setup)')
+    args = parser.parse_args()
+    
     setup = CognitoSetup()
+    
+    if args.add_post_auth_trigger:
+        # Only configure the post-auth trigger
+        success = setup.add_post_auth_trigger()
+        if success:
+            print(f"\n✅ Post-Authentication trigger configured successfully!")
+            print(f"\n📊 Login events will now be logged to DynamoDB table: lakehouse_user_login_audit")
+        else:
+            print(f"\n❌ Failed to configure Post-Authentication trigger")
+            print(f"   Run: bash deploy_post_auth_lambda.sh first")
+        exit(0 if success else 1)
+    
+    # Normal setup flow (includes automatic post-auth trigger configuration)
     result = setup.setup()
     
     print(f"\n📝 Configuration:\n{json.dumps({k: v for k, v in result.items() if 'secret' not in k}, indent=2)}")
@@ -542,15 +635,18 @@ if __name__ == '__main__':
     print(f"   • /app/lakehouse-agent/cognito-region")
     
     print(f"\n👥 Test Users Created:")
-    print(f"   • user001@example.com (username: user001@example.com) → users group")
-    print(f"   • user002@example.com (username: user002@example.com) → users group")
-    print(f"   • adjuster001@example.com (username: adjuster001@example.com) → adjusters group")
+    print(f"   • policyholder001@example.com → policyholders group")
+    print(f"   • policyholder002@example.com → policyholders group")
+    print(f"   • adjuster001@example.com → adjusters group")
+    print(f"   • adjuster002@example.com → adjusters group")
+    print(f"   • admin@example.com → administrators group")
     print(f"   Default password: TempPass123!")
     print(f"   Note: Users will be prompted to change password on first login")
     
     print(f"\n👥 Cognito Groups:")
-    print(f"   • users - Regular users group")
+    print(f"   • policyholders - Policy holders group")
     print(f"   • adjusters - Claims adjusters group")
+    print(f"   • administrators - Administrators group")
     
     print(f"\n🔑 App Clients:")
     print(f"   1. lakehouse-client (ID: {result['client_id']})")

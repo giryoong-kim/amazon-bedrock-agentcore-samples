@@ -26,6 +26,8 @@ if "runtime_arn" not in st.session_state:
     st.session_state.runtime_arn = ""
 if "cognito_config" not in st.session_state:
     st.session_state.cognito_config = {}
+if "example_prompt" not in st.session_state:
+    st.session_state.example_prompt = None
 
 def load_config_from_ssm():
     """Load configuration from SSM Parameter Store"""
@@ -291,9 +293,11 @@ with st.sidebar:
             
             # Test users dropdown
             test_users = [
-                "user001@example.com",
-                "user002@example.com",
-                "adjuster001@example.com"
+                "policyholder001@example.com",
+                "policyholder002@example.com",
+                "adjuster001@example.com",
+                "adjuster002@example.com",
+                "admin@example.com"
             ]
             username = st.selectbox("Email", options=test_users, index=0)
             password = st.text_input("Password", type="password", placeholder="TempPass123!")
@@ -417,23 +421,23 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Handle input
-prompt = st.session_state.pop("example_prompt", None) or st.chat_input("Ask about your claims...")
-
-if prompt:
+# Handle example prompt from sidebar
+if "example_prompt" in st.session_state and st.session_state.example_prompt:
+    prompt = st.session_state.example_prompt
+    st.session_state.example_prompt = None  # Clear it immediately
+    
     with st.chat_message("user"):
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
         config = st.session_state.cognito_config
-        # Config should always have region from load_config_from_ssm
         response = invoke_agent(
             st.session_state.runtime_arn,
             prompt,
             st.session_state.access_token,
             st.session_state.id_token,
-            config.get('region')  # Should always be set from load_config_from_ssm
+            config.get('region')
         )
         try:
             data = json.loads(response)
@@ -442,3 +446,34 @@ if prompt:
             pass
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    # Force rerun to show the chat input again
+    st.rerun()
+
+# Handle regular chat input
+prompt = st.chat_input("Ask about your claims...")
+
+if prompt:
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("assistant"):
+        config = st.session_state.cognito_config
+        response = invoke_agent(
+            st.session_state.runtime_arn,
+            prompt,
+            st.session_state.access_token,
+            st.session_state.id_token,
+            config.get('region')
+        )
+        try:
+            data = json.loads(response)
+            response = data.get("content", response)
+        except:
+            pass
+        st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    # Rerun to clear the input and show updated chat
+    st.rerun()

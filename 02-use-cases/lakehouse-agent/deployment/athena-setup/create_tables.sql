@@ -10,9 +10,10 @@ CREATE DATABASE IF NOT EXISTS lakehouse_db;
 -- Create claims table with row-level access control support
 CREATE EXTERNAL TABLE IF NOT EXISTS lakehouse_db.claims (
     claim_id STRING COMMENT 'Unique claim identifier',
-    user_id STRING COMMENT 'User/patient email for row-level access control',
-    patient_name STRING COMMENT 'Patient full name',
-    patient_dob DATE COMMENT 'Patient date of birth',
+    user_id STRING COMMENT 'User/policyholder email for row-level access control',
+    adjuster_user_id STRING COMMENT 'Assigned adjuster email for row-level access control',
+    policyholder_name STRING COMMENT 'policyholder full name',
+    policyholder_dob DATE COMMENT 'policyholder date of birth',
     claim_date DATE COMMENT 'Date when claim occurred',
     claim_amount DECIMAL(10,2) COMMENT 'Total claim amount in USD',
     claim_type STRING COMMENT 'Type of claim: medical, prescription, hospital, emergency',
@@ -44,7 +45,7 @@ TBLPROPERTIES (
 CREATE EXTERNAL TABLE IF NOT EXISTS lakehouse_db.users (
     user_id STRING COMMENT 'User email address',
     user_name STRING COMMENT 'User full name',
-    user_role STRING COMMENT 'User role: patient, adjuster, admin',
+    user_role STRING COMMENT 'User role: policyholder, adjuster, admin',
     department STRING COMMENT 'Department or region',
     created_date TIMESTAMP COMMENT 'User creation date'
 )

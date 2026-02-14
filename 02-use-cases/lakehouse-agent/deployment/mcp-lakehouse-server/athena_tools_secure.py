@@ -204,21 +204,12 @@ class SecureAthenaClaimsTools:
                     WHERE user_id='{user_id}'
                 )
                 SELECT
-                    claim_id,
-                    patient_name,
-                    claim_date,
-                    claim_amount,
-                    claim_type,
-                    claim_status,
-                    provider_name,
-                    diagnosis_code,
-                    submitted_date,
-                    approved_amount,
-                    notes
-                FROM {self.database_name}.claims
+                    *
+                FROM {self.database_name}.claims as c
                 WHERE 1=1
-                    AND user_id='{user_id}'
-                    OR 'adjuster' in (SELECT user_role FROM role_exp)
+                    AND c.user_id='{user_id}'
+                    OR ('adjuster' in (SELECT user_role FROM role_exp)
+                        AND c.adjuster_user_id='{user_id}')
             """
 
             # Add optional filters (safely)

@@ -132,7 +132,8 @@ class TenantRoleMappingSetup:
         role_arns = {}
         role_mappings = {
             'adjusters': 'lakehouse-adjusters-role',
-            'users': 'lakehouse-users-role'
+            'policyholders': 'lakehouse-policyholders-role',
+            'administrators': 'lakehouse-administrators-role'
         }
         
         for group, role_name in role_mappings.items():
@@ -166,15 +167,26 @@ class TenantRoleMappingSetup:
                 'claim_value': '["adjusters"]',
                 'role_type': 'iam_role',
                 'role_value': role_arns.get('adjusters', f"arn:aws:iam::{self.account_id}:role/lakehouse-adjusters-role"),
+                'allowed_tools': ['get_claims_summary', 'get_claim_details', 'query_claims'],
                 'description': 'Adjusters group mapping',
                 'createdAt': '2024-01-01T00:00:00Z'
             },
             {
                 'claim_name': 'cognito:groups',
-                'claim_value': '["users"]',
+                'claim_value': '["policyholders"]',
                 'role_type': 'iam_role',
-                'role_value': role_arns.get('users', f"arn:aws:iam::{self.account_id}:role/lakehouse-users-role"),
-                'description': 'Users group mapping',
+                'role_value': role_arns.get('policyholders', f"arn:aws:iam::{self.account_id}:role/lakehouse-policyholders-role"),
+                'allowed_tools': ['get_claims_summary', 'get_claim_details', 'query_claims'],
+                'description': 'Policyholders group mapping',
+                'createdAt': '2024-01-01T00:00:00Z'
+            },
+            {
+                'claim_name': 'cognito:groups',
+                'claim_value': '["administrators"]',
+                'role_type': 'iam_role',
+                'role_value': role_arns.get('administrators', f"arn:aws:iam::{self.account_id}:role/lakehouse-administrators-role"),
+                'allowed_tools': ['query_login_audit'],
+                'description': 'Administrators group mapping with audit access',
                 'createdAt': '2024-01-01T00:00:00Z'
             }
         ]
@@ -239,6 +251,8 @@ class TenantRoleMappingSetup:
             for item in items:
                 print(f"   - Key: ({item['claim_name']}, {item['claim_value']})")
                 print(f"     Target: {item['role_type']} = {item['role_value']}")
+                if 'allowed_tools' in item:
+                    print(f"     Allowed Tools: {', '.join(item['allowed_tools'])}")
                 if 'description' in item:
                     print(f"     Description: {item['description']}")
             
@@ -347,23 +361,28 @@ class TenantRoleMappingSetup:
         print(f"   Table Name: {self.table_name}")
         print(f"   Region: {self.region}")
         print(f"   Billing Mode: PAY_PER_REQUEST (on-demand)")
-        print(f"   Seed Data: 2 group mappings populated")
+        print(f"   Seed Data: 3 group mappings populated")
         print(f"\n🔑 Key Schema:")
         print(f"   - Partition Key: claim_name (String)")
         print(f"   - Sort Key: claim_value (String)")
         print(f"\n📊 Attributes:")
         print(f"   - role_type (String)")
         print(f"   - role_value (String)")
+        print(f"   - allowed_tools (List of Strings)")
+        print(f"\n🔐 Tool Authorization:")
+        print(f"   - administrators: query_login_audit")
+        print(f"   - adjusters: get_claims_summary, get_claim_details, query_claims")
+        print(f"   - policyholders: get_claims_summary, get_claim_details, query_claims")
         print(f"\n💾 SSM Parameters:")
         print(f"   - /app/lakehouse-agent/tenant-role-mapping-table")
         print(f"   - /app/lakehouse-agent/tenant-role-mapping-table-arn")
         print(f"\n🔐 Lambda Role:")
         print(f"   - Added DynamoDB read permissions")
         print(f"\n📝 Next Steps:")
-        print(f"   1. Update lambda_function.py to read from DynamoDB")
+        print(f"   1. Update lambda_function.py to use check_tool_authorization()")
         print(f"   2. Query using composite key: (claim_name, claim_value)")
         print(f"   3. Redeploy Lambda function: ./deploy.sh")
-        print(f"   4. Test with adjusters and users groups")
+        print(f"   4. Test with adjusters, policyholders, and administrators groups")
 
 
 def main():

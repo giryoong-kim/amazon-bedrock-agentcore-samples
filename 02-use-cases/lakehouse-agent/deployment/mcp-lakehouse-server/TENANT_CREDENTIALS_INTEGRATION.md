@@ -59,7 +59,7 @@ The interceptor passes credentials in this format:
 
 ```python
 {
-    "user_id": "user001@example.com",
+    "user_id": "policyholder001@example.com",
     "scopes": ["openid", "email"],
     "tenant_credentials": {
         "access_key_id": "ASIA...",
@@ -86,7 +86,7 @@ The interceptor passes credentials in this format:
 
 When tenant credentials are provided:
 ```
-👤 USER ID: user001@example.com
+👤 USER ID: policyholder001@example.com
 🔑 TENANT CREDENTIALS: Role lakehouse-tenant-1
 ```
 
@@ -94,7 +94,7 @@ When tenant credentials are provided:
 
 When no credentials provided (local development):
 ```
-👤 USER ID: user001@example.com
+👤 USER ID: policyholder001@example.com
 ⚠️  Using test user for local development
 ```
 

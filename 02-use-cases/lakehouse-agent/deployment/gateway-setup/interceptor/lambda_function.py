@@ -5,17 +5,19 @@ This Lambda function acts as a Gateway Interceptor following the AgentCore MCP p
 1. Extracts JWT bearer tokens from MCP gateway request structure
 2. Validates JWT tokens against Cognito
 3. Extracts user principal (email/username) from JWT claims
-4. Exchanges JWT claims to IAM credentials via DynamoDB role mapping
-5. Adds user identity and credentials to request headers for downstream MCP server
-6. Returns responses in proper MCP interceptor format
+4. Validates tool access based on user groups and allowed tools in DynamoDB
+5. Exchanges JWT claims to IAM credentials via DynamoDB role mapping
+6. Adds user identity and credentials to request headers for downstream MCP server
+7. Returns responses in proper MCP interceptor format
 
 Reference: https://github.com/awslabs/amazon-bedrock-agentcore-samples/blob/main/01-tutorials/02-AgentCore-gateway/14-token-exchange-at-request-interceptor/
 
 OAuth Flow:
   Streamlit → lakehouse-agent → Gateway (this interceptor) → MCP server
   
-The interceptor extracts the principal from the JWT token and exchanges it for
-IAM credentials based on tenant role mappings for Lake Formation row-level security.
+The interceptor extracts the principal from the JWT token, validates tool access,
+and exchanges it for IAM credentials based on tenant role mappings for Lake Formation 
+row-level security.
 """
 
 import json
@@ -29,6 +31,9 @@ from jose import jwt, JWTError
 
 # Import token exchange module
 from token_exchange import exchange_jwt_to_iam, get_claim_for_exchange
+
+# Import tool validation module
+from tool_validation import validate_tool_access
 
 # Configure logging
 logger = logging.getLogger()
@@ -287,6 +292,25 @@ def get_user_scopes(claims: Dict[str, Any]) -> list:
 
     return scopes
 
+def build_error_response(message, body, status_code=403):
+    """Return an MCP-style error response"""
+    return {
+        "interceptorOutputVersion": "1.0",
+        "mcp": {
+            "transformedGatewayResponse": {
+                "statusCode": status_code,
+                "body": {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id", "unknown") if isinstance(body, dict) else "unknown",
+                    "error": {
+                        "code": -32600,
+                        "message": message
+                    }
+                }
+            }
+        }
+    }
+
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -381,6 +405,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Get user scopes for logging
         scopes = get_user_scopes(claims)
         logger.info(f"👤 User: {user_principal}, Scopes: {scopes}")
+
+        # Validate tool access before proceeding
+        is_authorized, error_message, tool_name = validate_tool_access(claims, body)
+        
+        if not is_authorized:
+            logger.error(f"❌ Tool access denied: {error_message}")
+            return build_error_response(error_message, body, status_code=403)
+        
+        if tool_name:
+            logger.info(f"✅ Tool access authorized: {tool_name}")
 
         # Exchange JWT claims to IAM credentials via DynamoDB role mapping
         tenant_credentials = None

@@ -58,6 +58,7 @@ mkdir -p dist
 pip install -r requirements.txt -t dist/ --platform manylinux2014_x86_64 --only-binary=:all:
 cp lambda_function.py dist/
 cp token_exchange.py dist/
+cp tool_validation.py dist/
 
 cd dist
 zip -r ../interceptor-lambda.zip .

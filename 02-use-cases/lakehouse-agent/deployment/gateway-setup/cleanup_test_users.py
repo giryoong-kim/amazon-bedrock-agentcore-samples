@@ -31,8 +31,8 @@ def cleanup_users():
     
     # Test user emails to clean up
     test_emails = [
-        'user001@example.com',
-        'user002@example.com',
+        'policyholder001@example.com',
+        'policyholder002@example.com',
         'adjuster001@example.com'
     ]
     
