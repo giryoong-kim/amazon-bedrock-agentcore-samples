@@ -143,12 +143,28 @@ class IAMRolesSetup:
                         "glue:GetTable",
                         "glue:GetPartitions",
                         "glue:GetDatabases",
-                        "glue:GetTables"
+                        "glue:GetTables",
+                        "glue:GetCatalog"
                     ],
                     "Resource": [
                         f"arn:aws:glue:{self.region}:{self.account_id}:catalog",
                         f"arn:aws:glue:{self.region}:{self.account_id}:database/*",
                         f"arn:aws:glue:{self.region}:{self.account_id}:table/*/*"
+                    ]
+                },
+                {
+                    "Sid": "GlueFederatedCatalogAccess",
+                    "Effect": "Allow",
+                    "Action": [
+                        "glue:GetDatabase",
+                        "glue:GetTable",
+                        "glue:GetTables",
+                        "glue:GetPartitions"
+                    ],
+                    "Resource": [
+                        f"arn:aws:glue:{self.region}:{self.account_id}:catalog",
+                        f"arn:aws:glue:{self.region}:{self.account_id}:database/s3tablescatalog/*",
+                        f"arn:aws:glue:{self.region}:{self.account_id}:table/s3tablescatalog/*/*"
                     ]
                 },
                 {
@@ -169,6 +185,19 @@ class IAMRolesSetup:
                         f"arn:aws:s3tables:{self.region}:{self.account_id}:bucket/*/namespace/*",
                         f"arn:aws:s3tables:{self.region}:{self.account_id}:bucket/*/namespace/*/table/*"
                     ]
+                },
+                {
+                    "Sid": "LakeFormationAccess",
+                    "Effect": "Allow",
+                    "Action": [
+                        "lakeformation:GetDataAccess",
+                        "lakeformation:GetResourceLFTags",
+                        "lakeformation:ListLFTags",
+                        "lakeformation:GetLFTag",
+                        "lakeformation:SearchTablesByLFTags",
+                        "lakeformation:SearchDatabasesByLFTags"
+                    ],
+                    "Resource": "*"
                 },
                 {
                     "Sid": "S3DataAccess",
@@ -282,9 +311,27 @@ class IAMRolesSetup:
                 PolicyName=policy_name,
                 PolicyDocument=json.dumps(policy_document)
             )
-            print(f"✅ Attached policy {policy_name} to {role_name}")
+            print(f"✅ Attached inline policy {policy_name} to {role_name}")
         except Exception as e:
-            print(f"❌ Error attaching policy to {role_name}: {e}")
+            print(f"❌ Error attaching inline policy to {role_name}: {e}")
+            raise
+    
+    def attach_managed_policy(self, role_name: str, policy_arn: str):
+        """
+        Attach AWS managed policy to IAM role.
+        
+        Args:
+            role_name: Name of the IAM role
+            policy_arn: ARN of the managed policy
+        """
+        try:
+            self.iam_client.attach_role_policy(
+                RoleName=role_name,
+                PolicyArn=policy_arn
+            )
+            print(f"✅ Attached managed policy {policy_arn.split('/')[-1]} to {role_name}")
+        except Exception as e:
+            print(f"❌ Error attaching managed policy to {role_name}: {e}")
             raise
     
     def get_bucket_name_from_ssm(self) -> str:
@@ -351,12 +398,18 @@ class IAMRolesSetup:
         print("\n👤 Creating group roles...")
         role_arns = {}
         
+        # AWS managed policy ARN for Athena
+        athena_full_access_arn = 'arn:aws:iam::aws:policy/AmazonAthenaFullAccess'
+        
         for role_name in self.tenant_roles:
             # Create role
             role_arn = self.create_role(role_name, trust_policy)
             role_arns[role_name] = role_arn
             
-            # Attach appropriate policy based on role
+            # Attach AWS managed policy for Athena (includes Glue catalog access)
+            self.attach_managed_policy(role_name, athena_full_access_arn)
+            
+            # Attach appropriate inline policy based on role
             if 'administrators' in role_name:
                 policy_name = f'{role_name}-admin-access'
                 self.attach_inline_policy(role_name, policy_name, admin_policy)
@@ -379,13 +432,16 @@ class IAMRolesSetup:
             print(f"   - /app/lakehouse-agent/roles/{role_name}")
         
         print(f"\n📋 Permissions granted:")
-        print(f"   Policyholders & Adjusters:")
-        print(f"     - Athena query execution")
-        print(f"     - Glue catalog access")
+        print(f"   All roles:")
+        print(f"     - AmazonAthenaFullAccess (managed policy)")
+        print(f"       • Athena query execution and catalog access")
+        print(f"       • Glue Data Catalog and federated catalog access")
+        print(f"   Policyholders & Adjusters (inline policy):")
         print(f"     - S3 Tables read access (GetTable, GetTableMetadata, ListTables)")
+        print(f"     - Lake Formation data access (GetDataAccess)")
         print(f"     - S3 data access: s3://{bucket_name}")
         print(f"     - S3 query results: s3://{bucket_name}/athena-results/")
-        print(f"   Administrators (additional):")
+        print(f"   Administrators (additional inline policy):")
         print(f"     - DynamoDB login audit access (lakehouse_user_login_audit)")
         print(f"     - Can query user login history via MCP tool")
 
