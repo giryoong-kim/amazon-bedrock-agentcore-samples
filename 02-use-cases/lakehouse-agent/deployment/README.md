@@ -20,22 +20,32 @@ pip install bedrock-agentcore-starter-toolkit
 
 ## Deployment Sequence
 
-### Step 1: Deploy Athena Database
+### Step 1: Deploy S3 Tables Database
 
-Creates S3 bucket, Athena database, tables, and loads sample data.
+Creates S3 Tables bucket, namespace, tables (claims, users), and S3 bucket for query results.
 
 ```bash
-cd deployment/athena-setup
-python setup_athena.py
+cd deployment/s3tables-setup
+python setup_s3tables.py  # Uses default: lakehouse-{account_id}
+# Or specify custom name:
+# python setup_s3tables.py --table-bucket-name my-lakehouse
+python load_sample_data.py
+python setup_lakeformation_permissions.py
 ```
 
 SSM Parameters created:
-- `/app/lakehouse-agent/s3-bucket-name`
+- `/app/lakehouse-agent/table-bucket-name`
+- `/app/lakehouse-agent/table-bucket-arn`
+- `/app/lakehouse-agent/namespace`
 - `/app/lakehouse-agent/database-name`
+- `/app/lakehouse-agent/s3-bucket-name`
+
+Lake Formation permissions:
+- Registers S3 Tables bucket with Lake Formation
+- Grants database and table permissions to tenant roles
+- Configures column-level access for row-level security
 
 ---
-
-### Step 2: Deploy Cognito
 
 ### Step 2: Deploy Cognito
 
@@ -103,7 +113,7 @@ See [POST_AUTH_SETUP.md](cognito-setup/POST_AUTH_SETUP.md) for details.
 Creates IAM roles for users and adjusters groups with Athena/S3 permissions.
 
 ```bash
-cd ../lakehouse-user-roles-setup
+cd ../lakehouse-tenant-roles-setup
 python setup_iam_roles.py
 ```
 
@@ -193,9 +203,9 @@ Access at: http://localhost:8501
 
 | Step | Directory | Command |
 |------|-----------|---------|
-| 1 | `athena-setup` | `python setup_athena.py` |
+| 1 | `s3tables-setup` | `python setup_s3tables.py` then `python load_sample_data.py` |
 | 2 | `cognito-setup` | `python setup_cognito.py` |
-| 3 | `lakehouse-user-roles-setup` | `python setup_iam_roles.py` |
+| 3 | `lakehouse-tenant-roles-setup` | `python setup_iam_roles.py` |
 | 4 | `mcp-lakehouse-server` | `python deploy_runtime.py --yes` |
 | 5 | `gateway-setup/interceptor` | `./deploy.sh` |
 | 6 | `gateway-setup` | `python create_gateway.py --yes` |
@@ -208,11 +218,12 @@ Access at: http://localhost:8501
 
 ```
 deployment/
-├── athena-setup/                    # Step 1
-│   └── setup_athena.py
+├── s3tables-setup/                  # Step 1
+│   ├── setup_s3tables.py
+│   └── load_sample_data.py
 ├── cognito-setup/                   # Step 2
 │   └── setup_cognito.py
-├── lakehouse-user-roles-setup/      # Step 3
+├── lakehouse-tenant-roles-setup/    # Step 3
 │   └── setup_iam_roles.py
 ├── mcp-lakehouse-server/            # Step 4
 │   └── deploy_runtime.py

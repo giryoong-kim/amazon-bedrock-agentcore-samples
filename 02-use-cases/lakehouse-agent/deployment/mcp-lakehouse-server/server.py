@@ -122,6 +122,7 @@ def get_config() -> Dict[str, Optional[str]]:
     
     config['s3_bucket_name'] = get_param('s3-bucket-name', 'S3_BUCKET_NAME')
     config['database_name'] = get_param('database-name', 'ATHENA_DATABASE_NAME')
+    config['catalog_name'] = get_param('catalog-name', 'CATALOG_NAME')  # For S3 Tables
     config['security_mode'] = get_param('security-mode', 'SECURITY_MODE', 'lakeformation')
     config['log_level'] = os.environ.get('LOG_LEVEL', 'INFO')
     
@@ -174,12 +175,14 @@ def get_athena_tools():
         print("Initializing Athena tools with Lake Formation RLS...")
         print(f"  Region: {config['region']}")
         print(f"  Database: {config['database_name']}")
+        print(f"  Catalog: {config.get('catalog_name', 'default')}")
         print(f"  S3 Output: {config['s3_output_location']}")
 
         athena_tools = AthenaTools(
             region=config['region'],
             database_name=config['database_name'],
-            s3_output_location=config['s3_output_location']
+            s3_output_location=config['s3_output_location'],
+            catalog_name=config.get('catalog_name')
         )
 
         print("✅ Athena tools initialized with Lake Formation RLS")

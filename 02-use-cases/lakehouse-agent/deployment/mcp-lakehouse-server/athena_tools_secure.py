@@ -28,20 +28,33 @@ class SecureAthenaClaimsTools:
         self,
         region: str,
         database_name: str,
-        s3_output_location: str
+        s3_output_location: str,
+        catalog_name: Optional[str] = None
     ):
         """
         Initialize secure Athena tools.
 
         Args:
             region: AWS region
-            database_name: Athena database name
+            database_name: Database/namespace name
             s3_output_location: S3 location for query results
+            catalog_name: Optional catalog name for S3 Tables (e.g., s3tablescatalog/my-bucket)
         """
         self.region = region
         self.database_name = database_name
         self.s3_output_location = s3_output_location
+        self.catalog_name = catalog_name
         self.sts_client = boto3.client('sts', region_name=region)
+        
+        # Determine table prefix based on catalog
+        if catalog_name:
+            # S3 Tables: use catalog.database.table format
+            self.table_prefix = f'"{catalog_name}".{database_name}'
+            print(f"🗄️  Using S3 Tables: {self.table_prefix}")
+        else:
+            # Standard Athena: use database.table format
+            self.table_prefix = database_name
+            print(f"🗄️  Using Athena database: {self.table_prefix}")
 
 
     def _get_athena_client(self, user_id: str, tenant_credentials: Optional[Dict[str, str]] = None):
@@ -115,9 +128,13 @@ class SecureAthenaClaimsTools:
                     print(f"🔐 Executing query with DEFAULT CREDENTIALS")
 
             # Execute query - Lake Formation will automatically apply row filter
+            query_context = {'Database': self.database_name}
+            if self.catalog_name:
+                query_context['Catalog'] = self.catalog_name
+            
             response = athena_client.start_query_execution(
                 QueryString=query,
-                QueryExecutionContext={'Database': self.database_name},
+                QueryExecutionContext=query_context,
                 ResultConfiguration={'OutputLocation': self.s3_output_location}
             )
 
@@ -193,12 +210,12 @@ class SecureAthenaClaimsTools:
         try: 
             query = f"""
                 WITH role_exp AS (
-                    SELECT user_role FROM {self.database_name}.users
+                    SELECT user_role FROM {self.table_prefix}.users
                     WHERE user_id='{user_id}'
                 )
                 SELECT
                     *
-                FROM {self.database_name}.claims as c
+                FROM {self.table_prefix}.claims as c
                 WHERE 1=1
                     AND c.user_id='{user_id}'
                     OR ('adjuster' in (SELECT user_role FROM role_exp)
@@ -251,7 +268,7 @@ class SecureAthenaClaimsTools:
             # Query without user_id check - Lake Formation handles it!
             query = f"""
                 SELECT *
-                FROM {self.database_name}.claims
+                FROM {self.table_prefix}.claims
                 WHERE claim_id = '{claim_id}'
                     AND user_id='{user_id}'
             """
@@ -295,14 +312,12 @@ class SecureAthenaClaimsTools:
             query = f"""
                 SELECT
                     COUNT(*) as total_claims,
-                    SUM(CAST(claim_amount AS DECIMAL(10,2))) as total_amount,
-                    SUM(CASE WHEN approved_amount != ''
-                        THEN CAST(approved_amount AS DECIMAL(10,2))
-                        ELSE 0 END) as total_approved,
+                    SUM(claim_amount) as total_amount,
+                    SUM(approved_amount) as total_approved,
                     COUNT(CASE WHEN claim_status = 'pending' THEN 1 END) as pending_claims,
                     COUNT(CASE WHEN claim_status = 'approved' THEN 1 END) as approved_claims,
                     COUNT(CASE WHEN claim_status = 'denied' THEN 1 END) as denied_claims
-                FROM {self.database_name}.claims
+                FROM {self.table_prefix}.claims
                 WHERE 1=1
                     AND user_id='{user_id}'
             """
