@@ -48,10 +48,6 @@ class SSMConfig:
         self.s3_bucket_name = self._get_parameter('/app/lakehouse-agent/s3-bucket-name')
         self.database_name = self._get_parameter('/app/lakehouse-agent/database-name')
         self.cognito_user_pool_arn = self._get_parameter('/app/lakehouse-agent/cognito-user-pool-arn')
-        self.rls_role_arn = self._get_parameter('/app/lakehouse-agent/rls-role-arn', required=False)
-        if not self.rls_role_arn:
-            print("⚠️  Deploying without LakeFormation RLS.")
-            self.rls_role_arn = None
 
         # Constants
         self.security_mode = 'lakeformation'
@@ -94,7 +90,6 @@ class SSMConfig:
         print(f"   Region: {self.region}")
         print(f"   S3 Bucket: {self.s3_bucket_name}")
         print(f"   Database: {self.database_name}")
-        print(f"   RLS Role ARN: {self.rls_role_arn}")
         print(f"   Cognito User Pool ARN: {self.cognito_user_pool_arn}")
         print(f"   Security Mode: {self.security_mode}")
         print(f"   Log Level: {self.log_level}")
@@ -199,10 +194,15 @@ def create_runtime_role(config: SSMConfig):
             "Action": [
                 "logs:*"
             ],
-            "Resource": [
-                f"arn:aws:logs:{config.region}:{config.account_id}:log-group:/aws/bedrock-agentcore/*",
-                f"arn:aws:logs:{config.region}:{config.account_id}:log-group:/aws/agentcore/*"
-            ]
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "xray:PutTraceSegments",
+                "xray:PutTelemetryRecords"
+            ],
+            "Resource": "*"
         },
         {
             "Effect": "Allow",
@@ -223,17 +223,6 @@ def create_runtime_role(config: SSMConfig):
             "Resource": f"arn:aws:ssm:{config.region}:{config.account_id}:parameter/app/lakehouse-agent/*"
         }
     ]
-    
-    # Add STS AssumeRole permission only if rls_role_arn is set
-    if config.rls_role_arn:
-        statements.append({
-            "Effect": "Allow",
-            "Action": [
-                "sts:AssumeRole",
-                "sts:TagSession"
-            ],
-            "Resource": config.rls_role_arn
-        })
     
     permissions_policy = {
         "Version": "2012-10-17",
@@ -340,7 +329,6 @@ def deploy_to_runtime(config: SSMConfig, role_arn: str):
             'AWS_REGION': config.region,
             'S3_BUCKET_NAME': config.s3_bucket_name,
             'ATHENA_DATABASE_NAME': config.database_name,
-            'RLS_ROLE_ARN': config.rls_role_arn,
             'SECURITY_MODE': config.security_mode,
             'LOG_LEVEL': config.log_level
         }

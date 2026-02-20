@@ -17,14 +17,34 @@ Configuration:
 - Reads from SSM Parameter Store
 - Auto-detects region from boto3 session
 - Requires SECURITY_MODE=lakeformation
-- Optional RLS_ROLE_ARN to be set
+- Tenant credentials provided by Gateway interceptor
 """
 
 import sys
 import os
+import logging
 from typing import Any, Dict, Optional
 import boto3
 from mcp.server.fastmcp import FastMCP
+
+# Configure logging to stdout (captured by CloudWatch)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+    force=True  # Override any existing configuration
+)
+logger = logging.getLogger(__name__)
+
+# Also add a stderr handler to ensure logs appear
+stderr_handler = logging.StreamHandler(sys.stderr)
+stderr_handler.setLevel(logging.INFO)
+stderr_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(stderr_handler)
+
+# Ensure stdout is unbuffered
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 # Initialize MCP server
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
@@ -32,6 +52,7 @@ mcp = FastMCP(host="0.0.0.0", stateless_http=True)
 # PRODUCTION ONLY: Use Lake Formation row-level security
 from athena_tools_secure import SecureAthenaClaimsTools as AthenaTools
 
+logger.info("🔒 Using Lake Formation row-level security (production mode)")
 print("🔒 Using Lake Formation row-level security (production mode)")
 
 # Global Athena tools instance
@@ -101,7 +122,6 @@ def get_config() -> Dict[str, Optional[str]]:
     
     config['s3_bucket_name'] = get_param('s3-bucket-name', 'S3_BUCKET_NAME')
     config['database_name'] = get_param('database-name', 'ATHENA_DATABASE_NAME')
-    config['rls_role_arn'] = get_param('rls-role-arn', None)
     config['security_mode'] = get_param('security-mode', 'SECURITY_MODE', 'lakeformation')
     config['log_level'] = os.environ.get('LOG_LEVEL', 'INFO')
     
@@ -147,17 +167,19 @@ def get_athena_tools():
     if athena_tools is None:
         config = get_config()
         
+        logger.info("Initializing Athena tools with Lake Formation RLS...")
+        logger.info(f"  Region: {config['region']}")
+        logger.info(f"  Database: {config['database_name']}")
+        logger.info(f"  S3 Output: {config['s3_output_location']}")
         print("Initializing Athena tools with Lake Formation RLS...")
         print(f"  Region: {config['region']}")
         print(f"  Database: {config['database_name']}")
         print(f"  S3 Output: {config['s3_output_location']}")
-        print(f"  RLS Role: {config['rls_role_arn']}")
 
         athena_tools = AthenaTools(
             region=config['region'],
             database_name=config['database_name'],
-            s3_output_location=config['s3_output_location'],
-            rls_role_arn=config['rls_role_arn']
+            s3_output_location=config['s3_output_location']
         )
 
         print("✅ Athena tools initialized with Lake Formation RLS")
@@ -214,9 +236,22 @@ def query_claims(
     context: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """Query lakehouse data for the authenticated user."""
-    print("=" * 60)
-    print("🔧 TOOL INVOKED: query_claims")
-    print("=" * 60)
+    # Log to both logger and stderr to ensure visibility
+    msg = f"{'=' * 60}\n🔧 TOOL INVOKED: query_claims\n{'=' * 60}"
+    logger.info(msg)
+    print(msg, file=sys.stderr, flush=True)
+    print(msg, flush=True)
+    
+    logger.info(f"📥 INPUT PARAMETERS:")
+    logger.info(f"   claim_status: {claim_status}")
+    logger.info(f"   claim_type: {claim_type}")
+    logger.info(f"   start_date: {start_date}")
+    logger.info(f"   end_date: {end_date}")
+    logger.info(f"   context keys: {list(context.keys()) if context else None}")
+    
+    print(f"📥 INPUT PARAMETERS:", file=sys.stderr, flush=True)
+    print(f"   claim_status: {claim_status}", file=sys.stderr, flush=True)
+    print(f"   claim_type: {claim_type}", file=sys.stderr, flush=True)
     
     print("📥 INPUT PARAMETERS:")
     print(f"   claim_status: {claim_status}")
@@ -226,12 +261,28 @@ def query_claims(
     print(f"   context: {context}")
     
     try:
+        # Write to a file as absolute proof the tool was called
+        try:
+            with open('/tmp/mcp_tool_invoked.log', 'a') as f:
+                import datetime
+                f.write(f"{datetime.datetime.now()} - query_claims invoked\n")
+                f.write(f"  Parameters: status={claim_status}, type={claim_type}\n")
+                f.write(f"  Context keys: {list(context.keys()) if context else None}\n")
+                f.flush()
+        except Exception as log_err:
+            pass  # Don't fail if we can't write to file
+        
         user_id, tenant_credentials = get_user_id_with_fallback(context)
+        logger.info(f"👤 USER ID: {user_id}")
+        print(f"👤 USER ID: {user_id}", file=sys.stderr, flush=True)
         print(f"👤 USER ID: {user_id}")
         if tenant_credentials:
+            logger.info(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
+            print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}", file=sys.stderr, flush=True)
             print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
         
         if not user_id:
+            logger.error("❌ User identity not found in request")
             return {"success": False, "error": "User identity not found in request"}
         
         filters = {k: v for k, v in {
@@ -241,27 +292,41 @@ def query_claims(
             'end_date': end_date
         }.items() if v is not None}
         
+        logger.info(f"🔍 FILTERS: {filters}")
+        print(f"🔍 FILTERS: {filters}")
+        sys.stdout.flush()
         print(f"🔍 FILTERS: {filters}")
 
         tools = get_athena_tools()
         result = tools.query_claims(user_id, filters if filters else None, tenant_credentials)
         
+        logger.info("📤 OUTPUT:")
+        logger.info(f"   success: {result.get('success', 'N/A')}")
         print("📤 OUTPUT:")
         print(f"   success: {result.get('success', 'N/A')}")
         if result.get('success'):
             claims_count = len(result.get('claims', []))
+            logger.info(f"   claims_count: {claims_count}")
             print(f"   claims_count: {claims_count}")
         else:
+            logger.error(f"   error: {result.get('error', 'N/A')}")
             print(f"   error: {result.get('error', 'N/A')}")
         
+        logger.info("=" * 60)
         print("=" * 60)
+        sys.stdout.flush()
         return result
 
     except Exception as e:
+        logger.error(f"❌ ERROR in query_claims: {str(e)}")
         print(f"❌ ERROR in query_claims: {str(e)}")
         import traceback
-        print(f"   Stack trace: {traceback.format_exc()}")
+        error_trace = traceback.format_exc()
+        logger.error(f"   Stack trace: {error_trace}")
+        print(f"   Stack trace: {error_trace}")
+        logger.error("=" * 60)
         print("=" * 60)
+        sys.stdout.flush()
         return {"success": False, "error": str(e)}
 
 
@@ -518,26 +583,48 @@ def query_login_audit(
 
 
 if __name__ == "__main__":
+    # Log startup
+    logger.info("=" * 70)
+    logger.info("🚀 MCP SERVER STARTING")
+    logger.info("=" * 70)
+    print("=" * 70)
+    print("🚀 MCP SERVER STARTING")
+    print("=" * 70)
+    sys.stdout.flush()
+    
     print("\n🔍 Validating configuration...")
+    logger.info("🔍 Validating configuration...")
     
     config = get_config()
     
     if config['security_mode'] != 'lakeformation':
-        print("\n❌ Error: Only Lake Formation security mode is supported!")
-        print(f"   Current SECURITY_MODE: {config['security_mode']}")
+        error_msg = f"❌ Error: Only Lake Formation security mode is supported! Current: {config['security_mode']}"
+        logger.error(error_msg)
+        print(f"\n{error_msg}")
         sys.exit(1)
 
     if not validate_config(config):
+        logger.error("❌ Configuration is invalid!")
         print("\n❌ Configuration is invalid!")
         sys.exit(1)
 
+    logger.info("✅ Configuration validated")
+    logger.info("🔒 Lake Formation row-level security enabled")
     print("✅ Configuration validated")
     print("🔒 Lake Formation row-level security enabled")
 
-    print(f"Starting MCP Server with Lake Formation RLS:")
-    print(f"  Region: {config['region']}")
-    print(f"  Database: {config['database_name']}")
-    print(f"  S3 Output: {config['s3_output_location']}")
-    print(f"  RLS Role: {config['rls_role_arn']}")
+    startup_msg = f"""
+Starting MCP Server for data lakehouse access:
+  Region: {config['region']}
+  Database: {config['database_name']}
+  S3 Output: {config['s3_output_location']}
+"""
+    logger.info(startup_msg)
+    print(startup_msg)
+    sys.stdout.flush()
 
+    logger.info("🌐 Starting MCP server on streamable-http transport...")
+    print("🌐 Starting MCP server on streamable-http transport...")
+    sys.stdout.flush()
+    
     mcp.run(transport="streamable-http")

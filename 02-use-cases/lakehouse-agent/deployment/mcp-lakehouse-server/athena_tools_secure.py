@@ -28,8 +28,7 @@ class SecureAthenaClaimsTools:
         self,
         region: str,
         database_name: str,
-        s3_output_location: str,
-        rls_role_arn: str
+        s3_output_location: str
     ):
         """
         Initialize secure Athena tools.
@@ -38,12 +37,10 @@ class SecureAthenaClaimsTools:
             region: AWS region
             database_name: Athena database name
             s3_output_location: S3 location for query results
-            rls_role_arn: IAM role ARN with Lake Formation data filter permissions if setup 
         """
         self.region = region
         self.database_name = database_name
         self.s3_output_location = s3_output_location
-        self.rls_role_arn = rls_role_arn
         self.sts_client = boto3.client('sts', region_name=region)
 
 
@@ -103,10 +100,6 @@ class SecureAthenaClaimsTools:
                 role_arn = tenant_credentials.get('role_arn', 'unknown')
                 print(f"🔐 Executing query with TENANT ROLE: {role_name}")
                 print(f"   Role ARN: {role_arn}")
-            elif self.rls_role_arn:
-                role_name = self.rls_role_arn.split('/')[-1]
-                print(f"🔐 Executing query with SESSION TAG ROLE: {role_name}")
-                print(f"   Role ARN: {self.rls_role_arn}")
             else:
                 # Get current identity
                 try:
