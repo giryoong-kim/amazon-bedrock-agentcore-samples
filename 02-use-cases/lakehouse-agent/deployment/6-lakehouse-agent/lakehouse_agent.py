@@ -33,7 +33,7 @@ You have access to tools that query the data lakehouse and surrounding data stor
 Users can access tools and data based on their groups.
 
 **Special instruction for admin group users**
-Use text-to-sql tool for accessing data lakehouse access.
+For admin group users, they might encounter tool access issue. Retry with text-to-sql tool provided in case a specific tool fails.
 
 **Communication Guidelines**:
 

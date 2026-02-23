@@ -394,12 +394,35 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 💡 Example Queries")
-    examples = [
-        "Show me all my claims",
-        "What's the status of CLM-2024-001?",
-        "Get my claims summary",
-        "Show pending claims"
-    ]
+    
+    # Customize examples based on user email/group
+    user_email = st.session_state.user_email or ""
+    
+    if "admin" in user_email.lower():
+        # Admin queries - can access login audit and text-to-sql
+        examples = [
+            "Show user login info",
+            "Show user details of John Doe",
+            "How many policyholders do we have?",
+            "Show all users in the system"
+        ]
+    elif "adjuster" in user_email.lower():
+        # Adjuster queries - can see claims they're assigned to
+        examples = [
+            "Show me all my assigned claims",
+            "What's the status of CLM-2024-001?",
+            "Get claims summary for my cases",
+            "Show pending claims I'm handling"
+        ]
+    else:
+        # Policyholder queries - can only see their own claims
+        examples = [
+            "Show me all my claims",
+            "What's the status of CLM-2024-001?",
+            "Get my claims summary",
+            "Show my pending claims"
+        ]
+    
     for ex in examples:
         if st.button(ex, key=f"ex_{ex[:15]}", use_container_width=True):
             st.session_state.example_prompt = ex

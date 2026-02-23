@@ -20,40 +20,13 @@ pip install bedrock-agentcore-starter-toolkit
 
 ## Deployment Sequence
 
-### Step 1: Deploy S3 Tables Database
-
-Creates S3 Tables bucket, namespace, tables (claims, users), and S3 bucket for query results.
-
-```bash
-cd deployment/s3tables-setup
-python setup_s3tables.py  # Uses default: lakehouse-{account_id}
-# Or specify custom name:
-# python setup_s3tables.py --table-bucket-name my-lakehouse
-python load_sample_data.py
-python setup_lakeformation_permissions.py
-```
-
-SSM Parameters created:
-- `/app/lakehouse-agent/table-bucket-name`
-- `/app/lakehouse-agent/table-bucket-arn`
-- `/app/lakehouse-agent/namespace`
-- `/app/lakehouse-agent/database-name`
-- `/app/lakehouse-agent/s3-bucket-name`
-
-Lake Formation permissions:
-- Registers S3 Tables bucket with Lake Formation
-- Grants database and table permissions to tenant roles
-- Configures column-level access for row-level security
-
----
-
-### Step 2: Deploy Cognito
+### Step 1: Deploy Cognito
 
 Creates User Pool, OAuth clients, groups (policyholders, adjusters, administrators), and test users.
 Automatically configures Post-Authentication trigger if Lambda exists.
 
 ```bash
-cd ../cognito-setup
+cd deployment/1-cognito-setup
 python setup_cognito.py
 ```
 
@@ -104,22 +77,52 @@ This creates:
 - Lambda function: `lakehouse-cognito-post-auth`
 - IAM role: `lakehouse-cognito-post-auth-role`
 
-See [POST_AUTH_SETUP.md](cognito-setup/POST_AUTH_SETUP.md) for details.
+See [POST_AUTH_SETUP.md](1-cognito-setup/POST_AUTH_SETUP.md) for details.
 
 ---
 
-### Step 3: Deploy IAM Roles for Tenant Groups
+### Step 2: Deploy IAM Roles for Tenant Groups
 
-Creates IAM roles for users and adjusters groups with Athena/S3 permissions.
+Creates IAM roles for policyholders, adjusters, and administrators groups with Athena/S3 permissions.
+These roles are required before setting up Lake Formation permissions on S3 Tables.
 
 ```bash
-cd ../lakehouse-tenant-roles-setup
+cd ../2-lakehouse-tenant-roles-setup
 python setup_iam_roles.py
 ```
 
 SSM Parameters created:
-- `/app/lakehouse-agent/roles/lakehouse-users-role`
+- `/app/lakehouse-agent/roles/lakehouse-policyholders-role`
 - `/app/lakehouse-agent/roles/lakehouse-adjusters-role`
+- `/app/lakehouse-agent/roles/lakehouse-administrators-role`
+
+---
+
+### Step 3: Deploy S3 Tables Database
+
+Creates S3 Tables bucket, namespace, tables (claims, users), and S3 bucket for query results.
+Configures Lake Formation permissions for tenant roles (requires roles from Step 2).
+
+```bash
+cd ../3-s3tables-setup
+python setup_s3tables.py  # Uses default: lakehouse-{account_id}
+# Or specify custom name:
+# python setup_s3tables.py --table-bucket-name my-lakehouse
+python load_sample_data.py
+python setup_lakeformation_permissions.py
+```
+
+SSM Parameters created:
+- `/app/lakehouse-agent/table-bucket-name`
+- `/app/lakehouse-agent/table-bucket-arn`
+- `/app/lakehouse-agent/namespace`
+- `/app/lakehouse-agent/database-name`
+- `/app/lakehouse-agent/s3-bucket-name`
+
+Lake Formation permissions:
+- Registers S3 Tables bucket with Lake Formation
+- Grants database and table permissions to tenant roles
+- Configures column-level access for row-level security
 
 ---
 
@@ -128,7 +131,7 @@ SSM Parameters created:
 Deploys the MCP Athena server to AgentCore Runtime.
 
 ```bash
-cd ../mcp-lakehouse-server
+cd ../4-mcp-lakehouse-server
 python deploy_runtime.py --yes
 ```
 
@@ -137,35 +140,54 @@ SSM Parameters created:
 
 ---
 
-### Step 5: Deploy Gateway Interceptor Lambda
+### Step 5: Deploy Gateway Interceptors
 
-Deploys the JWT validation Lambda and creates the tenant role mapping table.
+Deploys the request and response interceptor Lambdas and creates the tenant role mapping table.
+
+#### 5a. Deploy Request Interceptor
 
 ```bash
-cd ../gateway-setup/interceptor
+cd ../5-gateway-setup/interceptor-request
 ./deploy.sh
 ```
 
 This script:
-1. Packages Lambda function with dependencies
+1. Packages Lambda function with dependencies (python-jose, cryptography)
 2. Creates Lambda execution role
-3. Deploys Lambda function
+3. Deploys request interceptor Lambda function
 4. Creates DynamoDB table `lakehouse_tenant_role_map`
-5. Seeds tenant-to-role mappings
+5. Seeds tenant-to-role mappings with allowed tools
 
 SSM Parameters created:
 - `/app/lakehouse-agent/interceptor-lambda-arn`
 - `/app/lakehouse-agent/interceptor-lambda-role-arn`
 - `/app/lakehouse-agent/tenant-role-mapping-table`
 
+#### 5b. Deploy Response Interceptor
+
+```bash
+cd ../interceptor-response
+./deploy.sh
+```
+
+This script:
+1. Packages Lambda function with dependencies (python-jose, cryptography)
+2. Uses shared Lambda execution role from request interceptor
+3. Deploys response interceptor Lambda function
+4. Filters tool list based on user group permissions from DynamoDB
+5. Always removes system tools (e.g., x_amz_bedrock_agentcore_search)
+
+SSM Parameters created:
+- `/app/lakehouse-agent/response-interceptor-lambda-arn`
+
 ---
 
 ### Step 6: Deploy AgentCore Gateway
 
-Creates the Gateway connecting to MCP server with JWT interceptor.
+Creates the Gateway connecting to MCP server with request and response interceptors.
 
 ```bash
-cd ..
+cd ../5-gateway-setup
 python create_gateway.py --yes
 ```
 
@@ -179,7 +201,7 @@ SSM Parameters created:
 Deploys the conversational AI agent to AgentCore Runtime.
 
 ```bash
-cd ../lakehouse-agent
+cd ../6-lakehouse-agent
 python deploy_lakehouse_agent.py --yes
 ```
 
@@ -203,13 +225,14 @@ Access at: http://localhost:8501
 
 | Step | Directory | Command |
 |------|-----------|---------|
-| 1 | `s3tables-setup` | `python setup_s3tables.py` then `python load_sample_data.py` |
-| 2 | `cognito-setup` | `python setup_cognito.py` |
-| 3 | `lakehouse-tenant-roles-setup` | `python setup_iam_roles.py` |
-| 4 | `mcp-lakehouse-server` | `python deploy_runtime.py --yes` |
-| 5 | `gateway-setup/interceptor` | `./deploy.sh` |
-| 6 | `gateway-setup` | `python create_gateway.py --yes` |
-| 7 | `lakehouse-agent` | `python deploy_lakehouse_agent.py --yes` |
+| 1 | `1-cognito-setup` | `python setup_cognito.py` |
+| 2 | `2-lakehouse-tenant-roles-setup` | `python setup_iam_roles.py` |
+| 3 | `3-s3tables-setup` | `python setup_s3tables.py` then `python load_sample_data.py` then `python setup_lakeformation_permissions.py` |
+| 4 | `4-mcp-lakehouse-server` | `python deploy_runtime.py --yes` |
+| 5a | `5-gateway-setup/interceptor-request` | `./deploy.sh` |
+| 5b | `5-gateway-setup/interceptor-response` | `./deploy.sh` |
+| 6 | `5-gateway-setup` | `python create_gateway.py --yes` |
+| 7 | `6-lakehouse-agent` | `python deploy_lakehouse_agent.py --yes` |
 | 8 | `streamlit-ui` | `streamlit run streamlit_app.py` |
 
 ---
@@ -218,23 +241,29 @@ Access at: http://localhost:8501
 
 ```
 deployment/
-├── s3tables-setup/                  # Step 1
-│   ├── setup_s3tables.py
-│   └── load_sample_data.py
-├── cognito-setup/                   # Step 2
+├── 1-cognito-setup/                      # Step 1
 │   └── setup_cognito.py
-├── lakehouse-tenant-roles-setup/    # Step 3
+├── 2-lakehouse-tenant-roles-setup/       # Step 2
 │   └── setup_iam_roles.py
-├── mcp-lakehouse-server/            # Step 4
+├── 3-s3tables-setup/                     # Step 3
+│   ├── setup_s3tables.py
+│   ├── load_sample_data.py
+│   └── setup_lakeformation_permissions.py
+├── 4-mcp-lakehouse-server/               # Step 4
 │   └── deploy_runtime.py
-├── gateway-setup/                   # Steps 5-6
-│   ├── interceptor/
+├── 5-gateway-setup/                      # Steps 5-6
+│   ├── interceptor-request/              # Step 5a
 │   │   ├── deploy.sh
 │   │   ├── lambda_function.py
 │   │   ├── token_exchange.py
+│   │   ├── tool_validation.py
 │   │   └── setup_dynamodb_tenant_role_maps.py
-│   └── create_gateway.py
-└── lakehouse-agent/                 # Step 7
+│   ├── interceptor-response/             # Step 5b
+│   │   ├── deploy.sh
+│   │   ├── lambda_function.py
+│   │   └── README.md
+│   └── create_gateway.py                 # Step 6
+└── 6-lakehouse-agent/                    # Step 7
     └── deploy_lakehouse_agent.py
 ```
 
