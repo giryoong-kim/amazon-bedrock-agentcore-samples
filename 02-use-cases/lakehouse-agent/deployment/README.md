@@ -305,9 +305,11 @@ Access at: http://localhost:8501
 ```
 deployment/
 ├── 1-cognito-setup/                      # Step 1
-│   └── setup_cognito.py
+│   ├── setup_cognito.py
+│   └── cleanup_cognito.py
 ├── 2-lakehouse-tenant-roles-setup/       # Step 2
-│   └── setup_iam_roles.py
+│   ├── setup_iam_roles.py
+│   └── cleanup_iam_roles.py
 ├── 3-s3tables-setup/                     # Step 3
 │   ├── integrate_s3tables_lakeformation.py
 │   ├── setup_s3tables.py
@@ -316,7 +318,8 @@ deployment/
 │   ├── verify_setup.py
 │   └── cleanup_s3tables.py
 ├── 4-mcp-lakehouse-server/               # Step 4
-│   └── deploy_runtime.py
+│   ├── deploy_runtime.py
+│   └── cleanup_runtime.py
 ├── 5-gateway-setup/                      # Steps 5-6
 │   ├── interceptor-request/              # Step 5a
 │   │   ├── deploy.sh
@@ -328,9 +331,11 @@ deployment/
 │   │   ├── deploy.sh
 │   │   ├── lambda_function.py
 │   │   └── README.md
-│   └── create_gateway.py                 # Step 6
+│   ├── create_gateway.py                 # Step 6
+│   └── cleanup_gateway.py
 └── 6-lakehouse-agent/                    # Step 7
-    └── deploy_lakehouse_agent.py
+    ├── deploy_lakehouse_agent.py
+    └── cleanup_agent.py
 ```
 
 ---
@@ -351,30 +356,39 @@ aws ssm get-parameters-by-path \
 
 ## Cleanup
 
-Run the cleanup notebook or delete resources manually:
+Each deployment step has a dedicated cleanup script. Run them in reverse order:
 
 ```bash
-# Delete AgentCore resources
-aws bedrock-agent delete-agent-runtime --runtime-id <agent-runtime-id>
-aws bedrock-agent delete-agent-runtime --runtime-id <mcp-runtime-id>
-aws bedrock-agent delete-gateway --gateway-id <gateway-id>
+# Step 7: Delete Lakehouse Agent
+cd 6-lakehouse-agent
+python cleanup_agent.py
 
-# Delete Lambda
-aws lambda delete-function --function-name lakehouse-gateway-interceptor
+# Step 6/5: Delete Gateway, interceptors, DynamoDB mapping table
+cd ../5-gateway-setup
+python cleanup_gateway.py
 
-# Delete DynamoDB table
-aws dynamodb delete-table --table-name lakehouse_tenant_role_map
+# Step 4: Delete MCP Server Runtime
+cd ../4-mcp-lakehouse-server
+python cleanup_runtime.py
 
-# Delete IAM roles
-aws iam delete-role-policy --role-name lakehouse-users-role --policy-name lakehouse-users-role-athena-s3-access
-aws iam delete-role --role-name lakehouse-users-role
-aws iam delete-role-policy --role-name lakehouse-adjusters-role --policy-name lakehouse-adjusters-role-athena-s3-access
-aws iam delete-role --role-name lakehouse-adjusters-role
+# Step 3: Delete S3 Tables, Lake Formation integration
+cd ../3-s3tables-setup
+python cleanup_s3tables.py
 
-# Delete Cognito
-aws cognito-idp delete-user-pool --user-pool-id <pool-id>
+# Step 2: Delete IAM tenant roles
+cd ../2-lakehouse-tenant-roles-setup
+python cleanup_iam_roles.py
 
-# Delete SSM parameters
+# Step 1: Delete Cognito User Pool, Lambda, DynamoDB audit table
+cd ../1-cognito-setup
+python cleanup_cognito.py
+```
+
+All cleanup scripts support `--keep-ssm` to preserve SSM parameters for re-deployment.
+
+To delete remaining SSM parameters manually:
+
+```bash
 aws ssm delete-parameters --names $(aws ssm get-parameters-by-path \
   --path /app/lakehouse-agent/ --recursive \
   --query 'Parameters[*].Name' --output text)
