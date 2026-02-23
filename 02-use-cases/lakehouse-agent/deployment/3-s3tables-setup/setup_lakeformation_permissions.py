@@ -266,10 +266,10 @@ class LakeFormationSetup:
             
             # Grant table permissions
             if role_type == 'administrators':
-                # Admins get full SELECT on all tables
+                # Admins get full access on all tables (including INSERT for data loading)
                 print(f"   📊 Granting admin permissions...")
-                self.grant_table_permissions(role_arn, role_type, 'claims', ['SELECT', 'DESCRIBE'])
-                self.grant_table_permissions(role_arn, role_type, 'users', ['SELECT', 'DESCRIBE'])
+                self.grant_table_permissions(role_arn, role_type, 'claims', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
+                self.grant_table_permissions(role_arn, role_type, 'users', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
             else:
                 # Policyholders and adjusters get column-level permissions
                 print(f"   📊 Granting column-level permissions...")
@@ -284,7 +284,7 @@ class LakeFormationSetup:
         print(f"\n📋 Permissions granted:")
         print(f"   Policyholders: SELECT on claims (with row filter), SELECT on users")
         print(f"   Adjusters: SELECT on claims (with row filter), SELECT on users")
-        print(f"   Administrators: Full SELECT on all tables")
+        print(f"   Administrators: Full access on all tables (SELECT, INSERT, ALTER, DELETE)")
         
         print(f"\n⚠️  Note: Row-level security filters need to be configured manually")
         print(f"   in Lake Formation console for policyholders and adjusters roles.")

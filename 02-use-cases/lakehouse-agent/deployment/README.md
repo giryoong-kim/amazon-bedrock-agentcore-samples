@@ -101,28 +101,87 @@ SSM Parameters created:
 ### Step 3: Deploy S3 Tables Database
 
 Creates S3 Tables bucket, namespace, tables (claims, users), and S3 bucket for query results.
-Configures Lake Formation permissions for tenant roles (requires roles from Step 2).
+Integrates S3 Tables with Lake Formation and configures permissions for tenant roles (requires roles from Step 2).
+
+#### 3a. Grant Lake Formation Admin Permissions (One-time Setup)
+
+Before running the integration script, your AWS role needs Lake Formation administrator permissions.
+
+**Option 1: AWS Console**
+1. Go to AWS Lake Formation console
+2. Navigate to "Administrative roles and tasks" → "Data lake administrators"
+3. Click "Choose administrators"
+4. Add your IAM role (e.g., `arn:aws:iam::{account_id}:role/YourRole`)
+5. Click "Save"
+
+**Option 2: AWS CLI**
+```bash
+# Get current Lake Formation admins
+aws lakeformation get-data-lake-settings --region us-east-1
+
+# Add your role (replace with your role ARN)
+aws lakeformation put-data-lake-settings \
+  --data-lake-settings '{
+    "DataLakeAdmins": [
+      {
+        "DataLakePrincipalIdentifier": "arn:aws:iam::123456789012:role/YourRole"
+      }
+    ]
+  }' \
+  --region us-east-1
+```
+
+#### 3b. Integrate S3 Tables with Lake Formation
 
 ```bash
 cd ../3-s3tables-setup
-python setup_s3tables.py  # Uses default: lakehouse-{account_id}
+python integrate_s3tables_lakeformation.py
+```
+
+This script:
+- Creates IAM role for Lake Formation data access
+- Registers S3 Tables bucket with Lake Formation (with federation enabled)
+- Creates federated catalog `s3tablescatalog` for S3 Tables
+- Grants the calling principal permissions on the catalog
+
+SSM Parameters created:
+- `/app/lakehouse-agent/lakeformation-role-arn`
+- `/app/lakehouse-agent/s3tables-catalog-name`
+
+#### 3c. Create S3 Tables
+
+```bash
+python setup_s3tables.py  # Uses default: lakehouse-{account_id}-{random}
 # Or specify custom name:
 # python setup_s3tables.py --table-bucket-name my-lakehouse
-python load_sample_data.py
-python setup_lakeformation_permissions.py
 ```
 
 SSM Parameters created:
 - `/app/lakehouse-agent/table-bucket-name`
 - `/app/lakehouse-agent/table-bucket-arn`
 - `/app/lakehouse-agent/namespace`
-- `/app/lakehouse-agent/database-name`
+- `/app/lakehouse-agent/catalog-name`
 - `/app/lakehouse-agent/s3-bucket-name`
 
-Lake Formation permissions:
-- Registers S3 Tables bucket with Lake Formation
-- Grants database and table permissions to tenant roles
+#### 3d. Configure Lake Formation Permissions
+
+```bash
+python setup_lakeformation_permissions.py
+```
+
+Lake Formation permissions configured:
+- Grants database and table permissions to tenant roles (from Step 2)
 - Configures column-level access for row-level security
+- Sets up data filters for policyholders (user_id column)
+
+#### 3e. Load Sample Data
+
+```bash
+python load_sample_data.py
+```
+
+This script assumes the administrators role (created in Step 2) to insert data via Athena.
+The admin role has Lake Formation permissions granted in Step 3d.
 
 ---
 
@@ -187,7 +246,7 @@ SSM Parameters created:
 Creates the Gateway connecting to MCP server with request and response interceptors.
 
 ```bash
-cd ../5-gateway-setup
+cd ..
 python create_gateway.py --yes
 ```
 
@@ -227,7 +286,11 @@ Access at: http://localhost:8501
 |------|-----------|---------|
 | 1 | `1-cognito-setup` | `python setup_cognito.py` |
 | 2 | `2-lakehouse-tenant-roles-setup` | `python setup_iam_roles.py` |
-| 3 | `3-s3tables-setup` | `python setup_s3tables.py` then `python load_sample_data.py` then `python setup_lakeformation_permissions.py` |
+| 3a | Lake Formation Console/CLI | Grant Lake Formation admin permissions (one-time) |
+| 3b | `3-s3tables-setup` | `python integrate_s3tables_lakeformation.py` |
+| 3c | `3-s3tables-setup` | `python setup_s3tables.py` |
+| 3d | `3-s3tables-setup` | `python setup_lakeformation_permissions.py` |
+| 3e | `3-s3tables-setup` | `python load_sample_data.py` |
 | 4 | `4-mcp-lakehouse-server` | `python deploy_runtime.py --yes` |
 | 5a | `5-gateway-setup/interceptor-request` | `./deploy.sh` |
 | 5b | `5-gateway-setup/interceptor-response` | `./deploy.sh` |
@@ -246,9 +309,12 @@ deployment/
 ├── 2-lakehouse-tenant-roles-setup/       # Step 2
 │   └── setup_iam_roles.py
 ├── 3-s3tables-setup/                     # Step 3
+│   ├── integrate_s3tables_lakeformation.py
 │   ├── setup_s3tables.py
+│   ├── setup_lakeformation_permissions.py
 │   ├── load_sample_data.py
-│   └── setup_lakeformation_permissions.py
+│   ├── verify_setup.py
+│   └── cleanup_s3tables.py
 ├── 4-mcp-lakehouse-server/               # Step 4
 │   └── deploy_runtime.py
 ├── 5-gateway-setup/                      # Steps 5-6

@@ -223,6 +223,16 @@ class IAMRolesSetup:
                     "Resource": [
                         f"arn:aws:s3:::{bucket_name}/athena-results/*"
                     ]
+                },
+                {
+                    "Sid": "MarketplaceModelAccess",
+                    "Effect": "Allow",
+                    "Action": [
+                        "aws-marketplace:ViewSubscriptions",
+                        "aws-marketplace:Subscribe",
+                        "aws-marketplace:Unsubscribe"
+                    ],
+                    "Resource": "*"
                 }
             ]
         }

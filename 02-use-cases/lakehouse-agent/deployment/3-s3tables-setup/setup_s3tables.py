@@ -13,10 +13,16 @@ import boto3
 import sys
 import os
 import argparse
+import random
+import string
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from utils.aws_session_utils import get_aws_session
+
+def generate_random_suffix(length=6):
+    """Generate a random alphanumeric suffix."""
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
 def main():
     parser = argparse.ArgumentParser(description='Setup S3 Tables for lakehouse')
@@ -24,15 +30,19 @@ def main():
         '--table-bucket-name',
         required=False,
         default=None,
-        help='S3 table bucket name (default: lakehouse-{account_id})'
+        help='S3 table bucket name (default: lakehouse-{account_id}-{random})'
     )
     args = parser.parse_args()
     
     # Get AWS session
     session, region, account_id = get_aws_session()
     
-    # Use default table bucket name if not provided
-    table_bucket_name = args.table_bucket_name or f"lakehouse-{account_id}"
+    # Use default table bucket name with random suffix if not provided
+    if args.table_bucket_name:
+        table_bucket_name = args.table_bucket_name
+    else:
+        random_suffix = generate_random_suffix()
+        table_bucket_name = f"lakehouse-{account_id}-{random_suffix}"
     
     print(f"\n🚀 S3 Tables Setup")
     print(f"   Region: {region}")
@@ -46,18 +56,41 @@ def main():
     # Step 1: Create table bucket
     print(f"\n📦 Creating S3 table bucket...")
     
+    table_bucket_arn = None
+    
     try:
         response = s3tables.create_table_bucket(name=table_bucket_name)
-        table_bucket_arn = response['arn']
-        print(f"✅ Created table bucket: {table_bucket_arn}")
+        table_bucket_arn = response.get('arn')
+        if table_bucket_arn:
+            print(f"✅ Created table bucket: {table_bucket_arn}")
+        else:
+            print(f"⚠️  Bucket created but no ARN returned. Response: {response}")
+            table_bucket_arn = f"arn:aws:s3tables:{region}:{account_id}:bucket/{table_bucket_name}"
+            print(f"   Using constructed ARN: {table_bucket_arn}")
     except s3tables.exceptions.ConflictException:
         # Get existing bucket ARN
-        buckets = s3tables.list_table_buckets()
-        table_bucket_arn = next(
-            (b['arn'] for b in buckets['tableBuckets'] if b['name'] == table_bucket_name),
-            None
-        )
-        print(f"✅ Table bucket exists: {table_bucket_arn}")
+        print(f"   Bucket already exists, retrieving ARN...")
+        try:
+            response = s3tables.get_table_bucket(name=table_bucket_name)
+            table_bucket_arn = response.get('arn')
+            if table_bucket_arn:
+                print(f"✅ Table bucket exists: {table_bucket_arn}")
+            else:
+                print(f"⚠️  Could not get ARN from response: {response}")
+                table_bucket_arn = f"arn:aws:s3tables:{region}:{account_id}:bucket/{table_bucket_name}"
+                print(f"   Using constructed ARN: {table_bucket_arn}")
+        except Exception as e:
+            print(f"⚠️  Error getting bucket: {e}")
+            # Fallback: construct ARN manually
+            table_bucket_arn = f"arn:aws:s3tables:{region}:{account_id}:bucket/{table_bucket_name}"
+            print(f"   Using constructed ARN: {table_bucket_arn}")
+    except Exception as e:
+        print(f"❌ Error creating table bucket: {e}")
+        print(f"   Error type: {type(e).__name__}")
+        raise
+    
+    if not table_bucket_arn:
+        raise Exception("Failed to create or retrieve table bucket ARN")
     
     # Step 2: Create namespace
     namespace = 'lakehouse_data'

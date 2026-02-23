@@ -71,7 +71,7 @@ echo ""
 echo "🔑 Creating Lambda execution role..."
 cd ..
 python create_lambda_role.py
-cd interceptor
+cd interceptor-request
 
 # Get the role ARN from SSM Parameter Store (stored by create_lambda_role.py)
 LAMBDA_ROLE_ARN=$(aws ssm get-parameter --name /app/lakehouse-agent/interceptor-lambda-role-arn --query 'Parameter.Value' --output text 2>/dev/null)

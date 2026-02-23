@@ -200,6 +200,15 @@ def create_runtime_role(config: SSMConfig):
         {
             "Effect": "Allow",
             "Action": [
+                "aws-marketplace:ViewSubscriptions",
+                "aws-marketplace:Subscribe",
+                "aws-marketplace:Unsubscribe"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
                 "logs:*"
             ],
             "Resource": "*"

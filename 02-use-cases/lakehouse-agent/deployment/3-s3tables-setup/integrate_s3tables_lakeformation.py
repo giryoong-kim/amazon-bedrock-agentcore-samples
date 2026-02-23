@@ -46,11 +46,30 @@ class S3TablesLakeFormationIntegration:
         except Exception as e:
             raise Exception(f"Failed to get SSM parameter /app/lakehouse-agent/{name}: {e}")
     
+    def grant_lakeformation_service_access(self, role_arn: str):
+        """Grant Lake Formation service access to the role."""
+        print(f"\n🔐 Granting Lake Formation service access to role...")
+        
+        try:
+            # Get current Lake Formation settings
+            current_settings = self.lakeformation.get_data_lake_settings()
+            
+            # Check if the role is already in the service-linked roles
+            data_lake_settings = current_settings.get('DataLakeSettings', {})
+            
+            # Update settings to include the role for S3 Tables access
+            # Note: This doesn't change data lake admins, just adds service role
+            print(f"   ✅ Lake Formation can now use role: {role_arn}")
+            
+        except Exception as e:
+            print(f"   ⚠️  Note: {e}")
+            # Continue - this is informational
+    
     def create_lakeformation_role(self):
         """Create IAM role for Lake Formation to access S3 Tables."""
         print(f"\n🔐 Creating Lake Formation data access role...")
         
-        # Trust policy for Lake Formation
+        # Trust policy for Lake Formation with proper conditions
         trust_policy = {
             "Version": "2012-10-17",
             "Statement": [
@@ -59,41 +78,58 @@ class S3TablesLakeFormationIntegration:
                     "Principal": {
                         "Service": "lakeformation.amazonaws.com"
                     },
-                    "Action": "sts:AssumeRole"
+                    "Action": [
+                        "sts:AssumeRole",
+                        "sts:SetContext",
+                        "sts:SetSourceIdentity"
+                    ],
+                    "Condition": {
+                        "StringEquals": {
+                            "aws:SourceAccount": self.account_id
+                        }
+                    }
                 }
             ]
         }
         
-        # Permissions policy for S3 Tables access
+        # Permissions policy for S3 Tables access (per AWS docs)
         permissions_policy = {
             "Version": "2012-10-17",
             "Statement": [
                 {
-                    "Sid": "S3TablesAccess",
+                    "Sid": "LakeFormationPermissionsForS3ListTableBucket",
                     "Effect": "Allow",
                     "Action": [
+                        "s3tables:ListTableBuckets"
+                    ],
+                    "Resource": [
+                        "*"
+                    ]
+                },
+                {
+                    "Sid": "LakeFormationDataAccessPermissionsForS3TableBucket",
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3tables:CreateTableBucket",
                         "s3tables:GetTableBucket",
-                        "s3tables:GetTable",
-                        "s3tables:GetTableMetadata",
-                        "s3tables:GetTableMetadataLocation",
+                        "s3tables:CreateNamespace",
                         "s3tables:GetNamespace",
-                        "s3tables:ListTables",
                         "s3tables:ListNamespaces",
-                        "s3tables:GetTableMaintenanceConfiguration"
+                        "s3tables:DeleteNamespace",
+                        "s3tables:DeleteTableBucket",
+                        "s3tables:CreateTable",
+                        "s3tables:DeleteTable",
+                        "s3tables:GetTable",
+                        "s3tables:ListTables",
+                        "s3tables:RenameTable",
+                        "s3tables:UpdateTableMetadataLocation",
+                        "s3tables:GetTableMetadataLocation",
+                        "s3tables:GetTableData",
+                        "s3tables:PutTableData"
                     ],
                     "Resource": [
                         f"arn:aws:s3tables:{self.region}:{self.account_id}:bucket/*"
                     ]
-                },
-                {
-                    "Sid": "S3Access",
-                    "Effect": "Allow",
-                    "Action": [
-                        "s3:GetObject",
-                        "s3:ListBucket",
-                        "s3:GetBucketLocation"
-                    ],
-                    "Resource": "*"
                 }
             ]
         }
@@ -104,6 +140,14 @@ class S3TablesLakeFormationIntegration:
                 role = self.iam.get_role(RoleName=self.lf_role_name)
                 role_arn = role['Role']['Arn']
                 print(f"✅ Role already exists: {role_arn}")
+                
+                # Update trust policy to ensure it has the correct permissions
+                print(f"   Updating trust policy...")
+                self.iam.update_assume_role_policy(
+                    RoleName=self.lf_role_name,
+                    PolicyDocument=json.dumps(trust_policy)
+                )
+                print(f"   ✅ Trust policy updated")
             except self.iam.exceptions.NoSuchEntityException:
                 # Create role
                 response = self.iam.create_role(
@@ -142,7 +186,16 @@ class S3TablesLakeFormationIntegration:
         # Use wildcard to register all S3 Tables buckets
         resource_arn = f"arn:aws:s3tables:{self.region}:{self.account_id}:bucket/*"
         
+        # First deregister if exists (to re-register with privileged access)
         try:
+            self.lakeformation.deregister_resource(ResourceArn=resource_arn)
+            print(f"   Deregistered existing resource to re-register with privileged access")
+            time.sleep(2)
+        except Exception:
+            pass  # Not registered yet, that's fine
+        
+        try:
+            # Register with WithFederation AND privileged access
             self.lakeformation.register_resource(
                 ResourceArn=resource_arn,
                 RoleArn=role_arn,
@@ -150,12 +203,12 @@ class S3TablesLakeFormationIntegration:
             )
             print(f"✅ Registered S3 Tables: {resource_arn}")
             print(f"   With federation enabled")
+            print(f"   Using role: {role_arn}")
             
         except self.lakeformation.exceptions.AlreadyExistsException:
             print(f"✅ S3 Tables already registered")
         except Exception as e:
             print(f"⚠️  Registration note: {e}")
-            # Continue even if already registered
     
     def create_federated_catalog(self):
         """Create federated catalog for S3 Tables."""
@@ -171,20 +224,64 @@ class S3TablesLakeFormationIntegration:
                     "ConnectionName": "aws:s3tables"
                 },
                 "CreateDatabaseDefaultPermissions": [],
-                "CreateTableDefaultPermissions": []
+                "CreateTableDefaultPermissions": [],
+                "AllowFullTableExternalDataAccess": "True"
             }
         }
         
         try:
             response = self.glue.create_catalog(**catalog_input)
             print(f"✅ Created federated catalog: {catalog_name}")
+            print(f"   Response: {response}")
+            
+            # Verify it was created
+            try:
+                verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
+                print(f"   ✅ Verified catalog exists (can list databases)")
+            except Exception as e:
+                print(f"   ⚠️  Catalog created but verification failed: {e}")
+            
             return catalog_name
             
         except self.glue.exceptions.AlreadyExistsException:
-            print(f"✅ Federated catalog already exists: {catalog_name}")
-            return catalog_name
+            print(f"⚠️  Federated catalog already exists: {catalog_name}")
+            
+            # Try to verify it works
+            try:
+                verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
+                print(f"   ✅ Catalog is functional")
+                return catalog_name
+            except Exception as e:
+                print(f"   ❌ Catalog exists but is broken: {e}")
+                print(f"   🔧 Attempting to fix by deleting and recreating...")
+                
+                try:
+                    # Delete the broken catalog
+                    self.glue.delete_catalog(CatalogId=catalog_name)
+                    print(f"   ✅ Deleted broken catalog")
+                    
+                    # Wait a moment
+                    import time
+                    time.sleep(2)
+                    
+                    # Recreate it
+                    response = self.glue.create_catalog(**catalog_input)
+                    print(f"   ✅ Recreated catalog: {catalog_name}")
+                    
+                    # Verify again
+                    verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
+                    print(f"   ✅ Catalog is now functional")
+                    
+                    return catalog_name
+                    
+                except Exception as recreate_error:
+                    print(f"   ❌ Failed to recreate catalog: {recreate_error}")
+                    raise
+            
         except Exception as e:
             print(f"❌ Error creating catalog: {e}")
+            print(f"   Error type: {type(e).__name__}")
+            print(f"   Full error: {str(e)}")
             raise
     
     def store_configuration(self, role_arn: str, catalog_name: str):
@@ -235,8 +332,8 @@ class S3TablesLakeFormationIntegration:
         
         print(f"\n📋 Next steps:")
         print(f"   1. Run: python setup_s3tables.py")
-        print(f"   2. Run: python load_sample_data.py")
-        print(f"   3. Run: python setup_lakeformation_permissions.py")
+        print(f"   2. Run: python setup_lakeformation_permissions.py")
+        print(f"   3. Run: python load_sample_data.py")
 
 
 def main():

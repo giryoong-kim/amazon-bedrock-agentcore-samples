@@ -46,7 +46,7 @@ If you are working for administrators group, try to use text_to_sql tool in case
 """
 
 # Default model ID
-MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 def get_config() -> Dict[str, Optional[str]]:

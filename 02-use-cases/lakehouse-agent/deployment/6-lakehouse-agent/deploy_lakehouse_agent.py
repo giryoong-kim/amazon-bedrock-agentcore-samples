@@ -152,6 +152,15 @@ def create_agent_role(config: SSMConfig):
             {
                 "Effect": "Allow",
                 "Action": [
+                    "aws-marketplace:ViewSubscriptions",
+                    "aws-marketplace:Subscribe",
+                    "aws-marketplace:Unsubscribe"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
                     "bedrock-agentcore:InvokeGateway",
                     "bedrock-agentcore:GetGateway"
                 ],

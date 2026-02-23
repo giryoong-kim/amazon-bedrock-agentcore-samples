@@ -402,7 +402,6 @@ with st.sidebar:
         # Admin queries - can access login audit and text-to-sql
         examples = [
             "Show user login info",
-            "Show user details of John Doe",
             "How many policyholders do we have?",
             "Show all users in the system"
         ]
