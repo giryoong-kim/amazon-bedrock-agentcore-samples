@@ -15,6 +15,7 @@ Security Flow:
 
 import boto3
 import time
+import json
 from typing import List, Dict, Any, Optional
 from botocore.exceptions import ClientError
 
@@ -46,6 +47,9 @@ class SecureAthenaClaimsTools:
         self.catalog_name = catalog_name
         self.sts_client = boto3.client('sts', region_name=region)
         
+        # Get account ID for catalog operations
+        self.account_id = self.sts_client.get_caller_identity()['Account']
+        
         # Determine table prefix based on catalog
         if catalog_name:
             # S3 Tables: use catalog.database.table format
@@ -55,6 +59,9 @@ class SecureAthenaClaimsTools:
             # Standard Athena: use database.table format
             self.table_prefix = database_name
             print(f"🗄️  Using Athena database: {self.table_prefix}")
+        
+        # Cache for schema information
+        self._schema_cache = None
 
 
     def _get_athena_client(self, user_id: str, tenant_credentials: Optional[Dict[str, str]] = None):
@@ -361,4 +368,228 @@ class SecureAthenaClaimsTools:
                 "success": False,
                 "error": str(e),
                 "message": f"Error retrieving summary: {str(e)}"
+            }
+
+    def get_database_schema(self, tenant_credentials: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        Get database schema from Glue Data Catalog.
+        
+        Args:
+            tenant_credentials: Temporary credentials from interceptor
+            
+        Returns:
+            Dictionary containing schema information for all tables
+        """
+        try:
+            # Get Glue client with tenant credentials
+            if tenant_credentials:
+                glue_client = boto3.client(
+                    'glue',
+                    region_name=self.region,
+                    aws_access_key_id=tenant_credentials['access_key_id'],
+                    aws_secret_access_key=tenant_credentials['secret_access_key'],
+                    aws_session_token=tenant_credentials['session_token']
+                )
+            else:
+                glue_client = boto3.client('glue', region_name=self.region)
+            
+            # Determine catalog_id based on whether we're using S3 Tables
+            if self.catalog_name:
+                # For S3 Tables, we need the full catalog ID format:
+                # {account_id}:s3tablescatalog/{table_bucket_name}
+                # Get table bucket name from SSM
+                try:
+                    ssm_client = boto3.client('ssm', region_name=self.region)
+                    response = ssm_client.get_parameter(Name='/app/lakehouse-agent/table-bucket-name')
+                    table_bucket_name = response['Parameter']['Value']
+                    catalog_id = f"{self.account_id}:s3tablescatalog/{table_bucket_name}"
+                    print(f"📚 Querying schema from S3 Tables catalog: {catalog_id}")
+                except Exception as e:
+                    print(f"⚠️  Could not get table bucket name from SSM: {e}")
+                    # Fallback: try to construct from account_id
+                    table_bucket_name = f"lakehouse-{self.account_id}"
+                    catalog_id = f"{self.account_id}:s3tablescatalog/{table_bucket_name}"
+                    print(f"📚 Using fallback catalog ID: {catalog_id}")
+            else:
+                # For default Glue catalog, use account ID
+                catalog_id = self.account_id
+                print(f"📚 Querying schema from default catalog (account: {catalog_id})")
+            
+            # Get all tables in the database
+            get_tables_params = {
+                'CatalogId': catalog_id,
+                'DatabaseName': self.database_name
+            }
+            
+            tables_response = glue_client.get_tables(**get_tables_params)
+            
+            schema = {
+                "database": self.database_name,
+                "catalog": self.catalog_name or "default",
+                "catalog_id": catalog_id,
+                "tables": []
+            }
+            
+            for table in tables_response.get('TableList', []):
+                table_name = table['Name']
+                columns = []
+                
+                for col in table.get('StorageDescriptor', {}).get('Columns', []):
+                    columns.append({
+                        "name": col['Name'],
+                        "type": col['Type'],
+                        "comment": col.get('Comment', '')
+                    })
+                
+                # Also include partition columns if any
+                for col in table.get('PartitionKeys', []):
+                    columns.append({
+                        "name": col['Name'],
+                        "type": col['Type'],
+                        "comment": col.get('Comment', ''),
+                        "is_partition": True
+                    })
+                
+                schema["tables"].append({
+                    "name": table_name,
+                    "columns": columns,
+                    "description": table.get('Description', ''),
+                    "table_type": table.get('TableType', '')
+                })
+            
+            return {
+                "success": True,
+                "schema": schema,
+                "message": f"Retrieved schema for {len(schema['tables'])} tables"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Error retrieving schema: {str(e)}"
+            }
+
+    def text_to_sql(
+        self,
+        user_id: str,
+        natural_language_query: str,
+        tenant_credentials: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Convert natural language query to SQL and execute it.
+        
+        This tool:
+        1. Retrieves database schema from Glue Data Catalog
+        2. Uses Bedrock to generate SQL from natural language
+        3. Executes the generated SQL with tenant credentials
+        4. Returns results with the generated SQL for transparency
+        
+        SECURITY: Row-level filtering is enforced by Lake Formation based on tenant role.
+        
+        Args:
+            user_id: User email (for session context)
+            natural_language_query: Natural language description of desired query
+            tenant_credentials: Temporary credentials from interceptor
+            
+        Returns:
+            Dictionary with generated SQL, execution results, and metadata
+        """
+        try:
+            # Step 1: Get database schema (cached)
+            if not self._schema_cache:
+                schema_result = self.get_database_schema(tenant_credentials)
+                if not schema_result.get('success'):
+                    return {
+                        "success": False,
+                        "error": "Failed to retrieve database schema",
+                        "details": schema_result.get('error')
+                    }
+                self._schema_cache = schema_result['schema']
+            
+            schema = self._schema_cache
+            
+            # Step 2: Generate SQL using Bedrock
+            bedrock_runtime = boto3.client('bedrock-runtime', region_name=self.region)
+            
+            # Build schema description for the prompt
+            schema_description = f"Database: {schema['database']}\n"
+            if self.catalog_name:
+                schema_description += f"Catalog: {schema['catalog']}\n"
+            schema_description += "\nTables:\n"
+            
+            for table in schema['tables']:
+                schema_description += f"\n{table['name']}:\n"
+                if table.get('description'):
+                    schema_description += f"  Description: {table['description']}\n"
+                schema_description += "  Columns:\n"
+                for col in table['columns']:
+                    partition_marker = " (partition key)" if col.get('is_partition') else ""
+                    comment = f" - {col['comment']}" if col.get('comment') else ""
+                    schema_description += f"    - {col['name']} ({col['type']}){partition_marker}{comment}\n"
+            
+            # Create prompt for SQL generation
+            prompt = f"""You are a SQL expert. Generate a SQL query based on the user's natural language request.
+
+Database Schema:
+{schema_description}
+
+Important Rules:
+1. Use the table prefix "{self.table_prefix}" for all table references (e.g., {self.table_prefix}.claims)
+2. DO NOT add any WHERE clause filtering by user_id - Lake Formation handles row-level security automatically
+3. Generate ONLY the SQL query, no explanations or markdown formatting
+4. Use standard SQL syntax compatible with Amazon Athena
+5. Limit results to 100 rows unless the user specifies otherwise
+6. Use proper column names and data types from the schema above
+
+User Request: {natural_language_query}
+
+SQL Query:"""
+
+            # Call Bedrock to generate SQL
+            response = bedrock_runtime.invoke_model(
+                modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 1000,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    "temperature": 0.0
+                })
+            )
+            
+            response_body = json.loads(response['body'].read())
+            generated_sql = response_body['content'][0]['text'].strip()
+            
+            # Clean up the SQL (remove markdown code blocks if present)
+            if generated_sql.startswith('```sql'):
+                generated_sql = generated_sql.replace('```sql', '').replace('```', '').strip()
+            elif generated_sql.startswith('```'):
+                generated_sql = generated_sql.replace('```', '').strip()
+            
+            print(f"🤖 Generated SQL:\n{generated_sql}")
+            
+            # Step 3: Execute the generated SQL
+            results = self._execute_query(user_id, generated_sql, tenant_credentials=tenant_credentials)
+            
+            return {
+                "success": True,
+                "user_id": user_id,
+                "natural_language_query": natural_language_query,
+                "generated_sql": generated_sql,
+                "results": results or [],
+                "count": len(results) if results else 0,
+                "message": f"Query executed successfully, returned {len(results) if results else 0} rows",
+                "security": "Row-level filtering enforced by AWS Lake Formation"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Error in text-to-SQL: {str(e)}"
             }

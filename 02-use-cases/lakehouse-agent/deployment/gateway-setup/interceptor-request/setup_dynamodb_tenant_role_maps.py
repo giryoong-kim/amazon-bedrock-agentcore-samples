@@ -27,7 +27,7 @@ class TenantRoleMappingSetup:
         """
         Initialize DynamoDB setup.
         
-        Args:
+        Args:all
             table_name: Name of the DynamoDB table
         """
         # Get region from boto3 session
@@ -185,8 +185,8 @@ class TenantRoleMappingSetup:
                 'claim_value': '["administrators"]',
                 'role_type': 'iam_role',
                 'role_value': role_arns.get('administrators', f"arn:aws:iam::{self.account_id}:role/lakehouse-administrators-role"),
-                'allowed_tools': ['query_login_audit'],
-                'description': 'Administrators group mapping with audit access',
+                'allowed_tools': ['query_login_audit', 'text_to_sql'],
+                'description': 'Administrators group mapping with audit access and text-to-SQL',
                 'createdAt': '2024-01-01T00:00:00Z'
             }
         ]
@@ -194,11 +194,12 @@ class TenantRoleMappingSetup:
     def populate_seed_data(self) -> bool:
         """
         Populate table with seed data.
+        Always overwrites existing entries to ensure latest configuration.
         
         Returns:
             True if data was populated successfully
         """
-        print(f"\n📝 Populating seed data...")
+        print(f"\n📝 Populating seed data (overwriting existing entries)...")
         
         try:
             # Get role ARNs from SSM
@@ -208,25 +209,14 @@ class TenantRoleMappingSetup:
             seed_data = self.get_seed_data(role_arns)
             
             for item in seed_data:
-                # Check if item already exists
-                try:
-                    response = table.get_item(
-                        Key={
-                            'claim_name': item['claim_name'],
-                            'claim_value': item['claim_value']
-                        }
-                    )
-                    if 'Item' in response:
-                        print(f"   ℹ️  Mapping ({item['claim_name']}, {item['claim_value']}) already exists, skipping")
-                        continue
-                except:
-                    pass
-                
-                # Put item
+                # Always overwrite - use put_item to replace existing entries
                 table.put_item(Item=item)
-                print(f"   ✅ Added mapping: ({item['claim_name']}, {item['claim_value']}) → {item['role_type']}={item['role_value'].split('/')[-1]}")
+                
+                allowed_tools_str = ', '.join(item.get('allowed_tools', [])) if 'allowed_tools' in item else 'None'
+                print(f"   ✅ Updated mapping: ({item['claim_name']}, {item['claim_value']}) → {item['role_type']}={item['role_value'].split('/')[-1]}")
+                print(f"      Allowed tools: {allowed_tools_str}")
             
-            print(f"✅ Seed data populated successfully")
+            print(f"✅ Seed data populated successfully ({len(seed_data)} entries)")
             return True
             
         except ClientError as e:
@@ -370,7 +360,7 @@ class TenantRoleMappingSetup:
         print(f"   - role_value (String)")
         print(f"   - allowed_tools (List of Strings)")
         print(f"\n🔐 Tool Authorization:")
-        print(f"   - administrators: query_login_audit")
+        print(f"   - administrators: query_login_audit, text_to_sql, get_claims_summary, get_claim_details, query_claims")
         print(f"   - adjusters: get_claims_summary, get_claim_details, query_claims")
         print(f"   - policyholders: get_claims_summary, get_claim_details, query_claims")
         print(f"\n💾 SSM Parameters:")

@@ -192,6 +192,14 @@ def create_runtime_role(config: SSMConfig):
         {
             "Effect": "Allow",
             "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
                 "logs:*"
             ],
             "Resource": "*"

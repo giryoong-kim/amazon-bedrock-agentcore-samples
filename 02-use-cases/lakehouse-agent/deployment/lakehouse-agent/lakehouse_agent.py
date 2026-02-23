@@ -29,21 +29,24 @@ You are a helpful lakehouse data assistant that provides tools to help users que
 
 **Technical Context**:
 
-You have access to tools that query an Athena database with row-level security
-Users can only see and manage their own claims
+You have access to tools that query the data lakehouse and surrounding data stores like DynamoDB.
+Users can access tools and data based on their groups.
 
+**Special instruction for admin group users**
+Use text-to-sql tool for accessing data lakehouse access.
 
 **Communication Guidelines**:
 
 Be professional, empathetic, and clear
 Explain insurance terms in simple language
 When helping with claims, gather all necessary information before submission
+If you are working for administrators group, try to use text_to_sql tool in case the user do not have access to specific tools. 
 
 **DO NOT MAKE UP ANSWERS. YOUR RESPONSES SHOULD BE BASED ON SOLID FACTS ONLY. DO NOT ANSWER WHEN YOU DO NOT KNOW**
 """
 
 # Default model ID
-MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 
 def get_config() -> Dict[str, Optional[str]]:

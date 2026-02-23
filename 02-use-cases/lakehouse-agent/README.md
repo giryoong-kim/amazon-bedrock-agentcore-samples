@@ -364,9 +364,10 @@ This section provides manual command-line deployment instructions as an alternat
 If deploying via command line instead of notebooks:
 
 ```bash
-# Step 1: Deploy Athena
-cd athena-setup
-python setup_athena.py
+# Step 1: Deploy S3 Tables
+cd s3tables-setup
+python setup_s3tables.py  # Uses default: lakehouse-{account_id}
+python load_sample_data.py
 
 # Step 2: Deploy Cognito
 cd ../cognito-setup
@@ -642,9 +643,10 @@ lakehouse-agent/
 │   └── aws_session_utils.py        # AWS SSO session management
 │
 ├── 🗄️ Data Layer
-│   └── athena-setup/
-│       ├── setup_athena.py         # Athena database setup
-│       ├── create_tables.sql       # Table definitions
+│   └── s3tables-setup/
+│       ├── setup_s3tables.py         # S3 Tables setup
+│       ├── load_sample_data.py       # Sample data loader
+│       └── requirements.txt          # Dependencies
 │       └── sample_data.sql         # Sample data
 │
 ├── 🔐 Identity Layer

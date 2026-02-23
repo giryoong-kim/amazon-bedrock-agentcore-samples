@@ -427,7 +427,7 @@ def get_claims_summary(context: Dict[str, Any] = None) -> Dict[str, Any]:
 
 @mcp.tool(
     name="query_login_audit",
-    description="Query user login audit logs from DynamoDB. RESTRICTED: This tool can only be used by IT administrators."
+    description="Query user login audit logs from DynamoDB."
 )
 def query_login_audit(
     user_id: str = None,
@@ -438,7 +438,7 @@ def query_login_audit(
     """
     Query login audit logs from DynamoDB.
     
-    SECURITY: This tool is RESTRICTED to IT administrators only.
+    SECURITY: This tool is RESTRICTED to admin group only.
     Access control should be enforced at the Gateway level using fine-grained access control (FGAC).
     
     Args:
@@ -579,6 +579,70 @@ def query_login_audit(
         
     except Exception as e:
         print(f"❌ ERROR in query_login_audit: {str(e)}")
+        import traceback
+        print(f"   Stack trace: {traceback.format_exc()}")
+        print("=" * 60)
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(
+    name="text_to_sql",
+    description="""**This tool is to be used by admin group. admin group users should use this tool to access lakehouse databases.**
+    Convert natural language query to SQL and execute it against the lakehouse database. 
+    Automatically reads schema from data catalog and generates appropriate SQL query."""
+)
+def text_to_sql(
+    natural_language_query: str,
+    context: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Convert natural language to SQL and execute.
+    
+    This tool allows users to query the database using natural language.
+    It automatically:
+    - Reads the database schema from Glue Data Catalog
+    - Generates SQL using Amazon Bedrock
+    - Executes the query with proper security context
+    - Returns results with the generated SQL for transparency
+    
+    Example queries:
+    - "Show me all pending claims"
+    - "What is the total claim amount by claim type?"
+    - "List claims submitted in the last 30 days"
+    """
+    print("=" * 60)
+    print("🔧 TOOL INVOKED: text_to_sql")
+    print("=" * 60)
+    
+    print("📥 INPUT PARAMETERS:")
+    print(f"   natural_language_query: {natural_language_query}")
+    print(f"   context: {context}")
+    
+    try:
+        user_id, tenant_credentials = get_user_id_with_fallback(context)
+        print(f"👤 USER ID: {user_id}")
+        if tenant_credentials:
+            print(f"🔑 TENANT CREDENTIALS: Role {tenant_credentials.get('role_name')}")
+        
+        if not user_id:
+            return {"success": False, "error": "User identity not found in request"}
+        
+        tools = get_athena_tools()
+        result = tools.text_to_sql(user_id, natural_language_query, tenant_credentials)
+        
+        print("📤 OUTPUT:")
+        print(f"   success: {result.get('success', 'N/A')}")
+        if result.get('success'):
+            print(f"   generated_sql: {result.get('generated_sql', 'N/A')}")
+            print(f"   results_count: {result.get('count', 0)}")
+        else:
+            print(f"   error: {result.get('error', 'N/A')}")
+        
+        print("=" * 60)
+        return result
+
+    except Exception as e:
+        print(f"❌ ERROR in text_to_sql: {str(e)}")
         import traceback
         print(f"   Stack trace: {traceback.format_exc()}")
         print("=" * 60)
