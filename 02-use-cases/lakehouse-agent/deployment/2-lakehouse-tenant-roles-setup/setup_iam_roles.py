@@ -360,8 +360,8 @@ class IAMRolesSetup:
             return bucket_name
         except Exception as e:
             print(f"⚠️  Could not retrieve bucket name from SSM: {e}")
-            print("   Using default bucket pattern: {account_id}-{region}-lakehouse-data")
-            return f"{self.account_id}-{self.region}-lakehouse-data"
+            print("   Using default bucket pattern: {account_id}-{region}-lakehouse-agent")
+            return f"{self.account_id}-{self.region}-lakehouse-agent"
     
     def store_role_arns_in_ssm(self, role_arns: Dict[str, str]):
         """
