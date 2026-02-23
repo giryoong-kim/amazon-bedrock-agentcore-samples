@@ -259,21 +259,14 @@ pip install -r requirements.txt
 
 ### Prerequisites
 
-Ensure you have AWS credentials configured:
+Ensure you have AWS credentials configured using one of these methods:
 
 ```bash
-# Option 1: Using .env file (Recommended)
-# Create a .env file in this directory with your AWS credentials:
-# AWS_ACCESS_KEY_ID=your-access-key-id
-# AWS_SECRET_ACCESS_KEY=your-secret-access-key
-# AWS_SESSION_TOKEN=your-session-token  # Optional, for STS credentials
-# AWS_DEFAULT_REGION=us-east-1
-
-# Option 2: If using SSO
+# Option 1: AWS SSO (Recommended)
 export AWS_PROFILE=your-profile-name
 aws sso login --profile your-profile-name
 
-# Option 3: If using access keys
+# Option 2: Access keys / temporary credentials
 aws configure
 ```
 
@@ -518,8 +511,8 @@ Processed Date: 2024-01-18"
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| **AWS credentials not found** | Missing .env file or invalid credentials | Create .env file with valid AWS credentials |
-| **Token has expired** | STS credentials expired | Update .env with fresh credentials or use SSO |
+| **AWS credentials not found** | No active credentials | Run `aws sso login` or `aws configure` |
+| **Token has expired** | STS/SSO credentials expired | Re-authenticate with `aws sso login` or refresh credentials |
 | **No credentials** | AWS_PROFILE not set (SSO) | `export AWS_PROFILE=your-profile` |
 | **Bearer token required** | No token in request | Ensure token in Authorization header |
 | **Invalid token** | Token expired or wrong client | Get new token from Cognito |
@@ -528,41 +521,10 @@ Processed Date: 2024-01-18"
 
 ### Credential Troubleshooting
 
-#### .env File Issues
-
-**Error: "AWS credentials not found" or "No credentials configured"**
-```bash
-# Check if .env file exists
-ls -la .env
-
-# If missing, create it with your credentials:
-cat > .env << EOF
-AWS_ACCESS_KEY_ID=your-access-key-id
-AWS_SECRET_ACCESS_KEY=your-secret-access-key
-AWS_SESSION_TOKEN=your-session-token
-AWS_DEFAULT_REGION=us-east-1
-EOF
-```
-
-**Error: "Token has expired" (when using STS credentials)**
-```bash
-# Get new temporary credentials and update .env file
-# Example using assume-role:
-aws sts assume-role --role-arn arn:aws:iam::ACCOUNT:role/ROLE --role-session-name session
-
-# Then update .env with the new credentials
-```
-
-**Error: "Environment variables not loaded"**
-- Restart Jupyter kernel to reload environment variables
-- Ensure `.env` file is in the correct directory (`02-use-cases/lakehouse-agent/`)
-- Check file permissions: `chmod 600 .env`
-
-### AWS SSO Troubleshooting
+#### AWS SSO Issues
 
 **Error: "Token has expired and refresh failed"**
 ```bash
-# Solution: Re-login
 aws sso logout
 aws sso login --profile your-profile-name
 ```
