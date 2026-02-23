@@ -307,7 +307,7 @@ def deploy_to_runtime(config: SSMConfig, role_arn: str):
         # Launch the runtime (builds Docker image and deploys)
         print(f"\n🚀 Launching to AgentCore Runtime...")
         print(f"   This may take several minutes...")
-        launch_result = agentcore_runtime.launch()
+        launch_result = agentcore_runtime.launch(env_vars=env_vars)
         
         runtime_arn = launch_result.agent_arn
         runtime_id = launch_result.agent_id
