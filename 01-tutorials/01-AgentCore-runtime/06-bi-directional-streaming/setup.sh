@@ -68,10 +68,10 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 # Check for Docker
-#if ! command -v docker &> /dev/null; then
-#    echo "❌ Docker is not installed. Please install it first."
-#    exit 1
-#fi
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed. Please install it first."
+    exit 1
+fi
 
 # Check for AWS CLI
 if ! command -v aws &> /dev/null; then
