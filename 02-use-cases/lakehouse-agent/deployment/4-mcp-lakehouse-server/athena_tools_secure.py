@@ -277,7 +277,7 @@ class SecureAthenaClaimsTools:
                 SELECT *
                 FROM {self.table_prefix}.claims
                 WHERE claim_id = '{claim_id}'
-                    AND user_id='{user_id}'
+                    AND (user_id='{user_id}' OR adjuster_user_id='{user_id}')
             """
 
             results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
@@ -326,7 +326,7 @@ class SecureAthenaClaimsTools:
                     COUNT(CASE WHEN claim_status = 'denied' THEN 1 END) as denied_claims
                 FROM {self.table_prefix}.claims
                 WHERE 1=1
-                    AND user_id='{user_id}'
+                    AND (user_id='{user_id}' OR adjuster_user_id='{user_id}')
             """
 
             results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)

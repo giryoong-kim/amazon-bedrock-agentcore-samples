@@ -126,7 +126,7 @@ class S3TablesCleanup:
         catalog_name = 's3tablescatalog'
         
         try:
-            self.glue.delete_catalog(Name=catalog_name)
+            self.glue.delete_catalog(CatalogId=catalog_name)
             print(f"   ✅ Deleted catalog: {catalog_name}")
         except self.glue.exceptions.EntityNotFoundException:
             print(f"   ⚠️  Catalog not found: {catalog_name}")
@@ -188,8 +188,8 @@ class S3TablesCleanup:
         # Step 3: Delete S3 Tables bucket
         self.delete_table_bucket()
         
-        # Step 4: Delete federated catalog
-        self.delete_federated_catalog()
+        # Step 4: Delete federated catalog (OPTIONAL)
+        # self.delete_federated_catalog()
         
         # Step 5: Unregister from Lake Formation
         self.unregister_from_lakeformation()

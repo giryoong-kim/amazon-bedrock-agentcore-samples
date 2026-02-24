@@ -368,7 +368,7 @@ class TenantRoleMappingSetup:
         print(f"   - /app/lakehouse-agent/tenant-role-mapping-table-arn")
         print(f"\n🔐 Lambda Role:")
         print(f"   - Added DynamoDB read permissions")
-        print(f"\n📝 Next Steps:")
+        print(f"\n📋 Next Steps:")
         print(f"   1. Update lambda_function.py to use check_tool_authorization()")
         print(f"   2. Query using composite key: (claim_name, claim_value)")
         print(f"   3. Redeploy Lambda function: ./deploy.sh")

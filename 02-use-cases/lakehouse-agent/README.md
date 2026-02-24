@@ -294,9 +294,9 @@ There are two ways to deploy the Lakehouse Agent system:
 | | Jupyter Notebooks | CLI Scripts |
 |---|---|---|
 | **Best for** | Learning, exploration, step-by-step walkthrough | DevOps, automation, CI/CD pipelines |
-| **Guide** | Notebooks in this directory (`00-` through `07-`) | [deployment/README.md](deployment/README.md) |
+| **Guide** | Notebooks in this directory (`01-` through `08-`) | [deployment/README.md](deployment/README.md) |
 | **Interactivity** | Cell-by-cell execution with inline output | Command-line with terminal output |
-| **Cleanup** | `07-optional-cleanup.ipynb` | Dedicated `cleanup_*.py` scripts per step |
+| **Cleanup** | `08-optional-cleanup.ipynb` | Dedicated `cleanup_*.py` scripts per step |
 
 Both paths deploy the same resources and use SSM Parameter Store to share configuration between steps.
 
@@ -314,14 +314,14 @@ jupyter notebook
 
 | Notebook | Description |
 |----------|-------------|
-| `00-prerequisites-setup.ipynb` | Configure environment, create S3 bucket |
-| `01-deploy-s3tables.ipynb` | Deploy S3 Tables with Lake Formation integration and sample data |
-| `02-deploy-cognito.ipynb` | Set up Cognito User Pool with OAuth and test users |
-| `03-deploy-mcp-server.ipynb` | Deploy MCP Athena server on AgentCore Runtime |
-| `04-deploy-gateway.ipynb` | Deploy Gateway with request/response interceptors |
-| `05-deploy-agent.ipynb` | Deploy conversational AI agent on AgentCore Runtime |
-| `06-streamlit-ui-deployment.ipynb` | Launch Streamlit UI and test end-to-end flow |
-| `07-optional-cleanup.ipynb` | Clean up all deployed resources |
+| `01-deploy-cognito.ipynb` | Set up Cognito User Pool with OAuth and test users |
+| `02-deploy-iam-roles.ipynb` | Create IAM roles for tenant groups (policyholders, adjusters, administrators) |
+| `03-deploy-s3tables.ipynb` | Deploy S3 Tables with Lake Formation integration and sample data |
+| `04-deploy-mcp-server.ipynb` | Deploy MCP Athena server on AgentCore Runtime |
+| `05-deploy-gateway.ipynb` | Deploy Gateway with request/response interceptors |
+| `06-deploy-agent.ipynb` | Deploy conversational AI agent on AgentCore Runtime |
+| `07-streamlit-ui.ipynb` | Launch Streamlit UI and test end-to-end flow |
+| `08-optional-cleanup.ipynb` | Clean up all deployed resources |
 
 Each notebook explains what it deploys, shows progress, saves configuration to SSM, and can be re-run safely.
 
@@ -395,7 +395,7 @@ Expected: Conversational response with claims data filtered by your user's permi
 
 ## Cleanup
 
-**Notebooks**: Run `07-optional-cleanup.ipynb` — calls each cleanup script in reverse order.
+**Notebooks**: Run `08-optional-cleanup.ipynb` — calls each cleanup script in reverse order.
 
 **CLI**: Each deployment step has a dedicated cleanup script. Run in reverse order:
 
@@ -623,14 +623,14 @@ lakehouse-agent/
 │   ├── aws_session_utils.py                #   AWS SSO session management
 │   └── notebook_init.py                    #   Notebook initialization helper
 │
-├── 00-prerequisites-setup.ipynb            # Notebook: environment setup
-├── 01-deploy-s3tables.ipynb                # Notebook: S3 Tables + Lake Formation
-├── 02-deploy-cognito.ipynb                 # Notebook: Cognito OAuth
-├── 03-deploy-mcp-server.ipynb              # Notebook: MCP server deployment
-├── 04-deploy-gateway.ipynb                 # Notebook: Gateway + interceptors
-├── 05-deploy-agent.ipynb                   # Notebook: Agent deployment
-├── 06-streamlit-ui-deployment.ipynb        # Notebook: Streamlit UI test
-├── 07-optional-cleanup.ipynb               # Notebook: Resource cleanup
+├── 01-deploy-cognito.ipynb                 # Notebook: Cognito OAuth
+├── 02-deploy-iam-roles.ipynb              # Notebook: IAM tenant roles
+├── 03-deploy-s3tables.ipynb                # Notebook: S3 Tables + Lake Formation
+├── 04-deploy-mcp-server.ipynb              # Notebook: MCP server deployment
+├── 05-deploy-gateway.ipynb                 # Notebook: Gateway + interceptors
+├── 06-deploy-agent.ipynb                   # Notebook: Agent deployment
+├── 07-streamlit-ui.ipynb                   # Notebook: Streamlit UI test
+├── 08-optional-cleanup.ipynb               # Notebook: Resource cleanup
 │
 ├── deployment/                             # CLI deployment scripts
 │   ├── README.md                           #   Full CLI deployment guide
