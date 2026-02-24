@@ -67,9 +67,9 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Check for finch
-#if ! command -v finch &> /dev/null; then
-#    echo "❌ finch is not installed. Please install it first."
+# Check for Docker
+#if ! command -v docker &> /dev/null; then
+#    echo "❌ docker is not installed. Please install it first."
 #    exit 1
 #fi
 
@@ -125,7 +125,7 @@ pip install -q -r requirements.txt
 echo -e "${GREEN}✅ Dependencies installed${NC}"
 echo ""
 
-# Step 2: Build and push finch image
+# Step 2: Build and push Docker image
 echo -e "${YELLOW}🐳 Step 2: Building and pushing Docker image...${NC}"
 
 # Create ECR repository if it doesn't exist
@@ -138,12 +138,12 @@ aws ecr create-repository \
 # Login to ECR
 echo "   Logging in to ECR..."
 aws ecr get-login-password --region ${AWS_REGION} \
-    | finch login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com
+    | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com
 
 # Build and push image
 echo "   Building and pushing Docker image from $WEBSOCKET_FOLDER/websocket..."
 cd ./$WEBSOCKET_FOLDER/websocket
-finch build \
+docker buildx build \
     --platform linux/arm64 \
     -t $ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${AGENT_NAME} \
     --push .
