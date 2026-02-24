@@ -243,8 +243,9 @@ class LakeFormationSetup:
         # Register S3 Tables resource
         self.register_s3tables_resource()
         
-        # Define all columns for each table
-        claims_columns = [
+        # Define column sets for claims table
+        # All columns (for adjusters and admins)
+        claims_columns_all = [
             'claim_id', 'user_id', 'policyholder_name', 'policyholder_dob',
             'claim_date', 'claim_amount', 'claim_type', 'claim_status',
             'provider_name', 'provider_npi', 'diagnosis_code', 'procedure_code',
@@ -253,6 +254,16 @@ class LakeFormationSetup:
             'adjuster_user_id'
         ]
         
+        # Restricted columns for policyholders (excludes sensitive internal columns)
+        # Excluded: adjuster_user_id, created_by, last_modified_by, last_modified_date, notes, denial_reason
+        claims_columns_policyholder = [
+            'claim_id', 'user_id', 'policyholder_name', 'policyholder_dob',
+            'claim_date', 'claim_amount', 'claim_type', 'claim_status',
+            'provider_name', 'provider_npi', 'diagnosis_code', 'procedure_code',
+            'submitted_date', 'processed_date', 'approved_amount'
+        ]
+        
+        # Users table columns (same for all roles)
         users_columns = [
             'user_id', 'user_name', 'user_role', 'department', 'created_date'
         ]
@@ -270,11 +281,22 @@ class LakeFormationSetup:
                 print(f"   📊 Granting admin permissions...")
                 self.grant_table_permissions(role_arn, role_type, 'claims', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
                 self.grant_table_permissions(role_arn, role_type, 'users', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
-            else:
-                # Policyholders and adjusters get column-level permissions
-                print(f"   📊 Granting column-level permissions...")
+            elif role_type == 'policyholders':
+                # Policyholders get restricted column access (no sensitive internal columns)
+                print(f"   📊 Granting column-level permissions (restricted)...")
+                print(f"      Columns: {len(claims_columns_policyholder)}/21 (excluding internal operational data)")
                 self.grant_column_permissions_with_filter(
-                    role_arn, role_type, 'claims', claims_columns
+                    role_arn, role_type, 'claims', claims_columns_policyholder
+                )
+                self.grant_column_permissions_with_filter(
+                    role_arn, role_type, 'users', users_columns
+                )
+            elif role_type == 'adjusters':
+                # Adjusters get full column access (need to see all data to process claims)
+                print(f"   📊 Granting column-level permissions (full access)...")
+                print(f"      Columns: {len(claims_columns_all)}/21 (all columns)")
+                self.grant_column_permissions_with_filter(
+                    role_arn, role_type, 'claims', claims_columns_all
                 )
                 self.grant_column_permissions_with_filter(
                     role_arn, role_type, 'users', users_columns
@@ -282,8 +304,9 @@ class LakeFormationSetup:
         
         print(f"\n✨ Lake Formation permissions setup complete!")
         print(f"\n📋 Permissions granted:")
-        print(f"   Policyholders: SELECT on claims (with row filter), SELECT on users")
-        print(f"   Adjusters: SELECT on claims (with row filter), SELECT on users")
+        print(f"   Policyholders: SELECT on claims (15 columns - excludes internal data), SELECT on users")
+        print(f"      Excluded columns: adjuster_user_id, created_by, last_modified_by, last_modified_date, notes, denial_reason")
+        print(f"   Adjusters: SELECT on claims (all 21 columns), SELECT on users")
         print(f"   Administrators: Full access on all tables (SELECT, INSERT, ALTER, DELETE)")
         
         print(f"\n⚠️  Note: Row-level security filters need to be configured manually")
