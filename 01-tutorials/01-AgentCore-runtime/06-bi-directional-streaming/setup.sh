@@ -69,7 +69,7 @@ fi
 
 # Check for Docker
 #if ! command -v docker &> /dev/null; then
-#    echo "❌ docker is not installed. Please install it first."
+#    echo "❌ Docker is not installed. Please install it first."
 #    exit 1
 #fi
 
