@@ -198,7 +198,7 @@ class S3TablesCleanup:
         self.delete_ssm_parameters()
         
         print(f"\n✨ Cleanup complete!")
-        print(f"\n📋 Next steps:")
+        print(f"\n📋 Next Steps:")
         print(f"   1. Verify Lake Formation admin permissions are still set")
         print(f"   2. Run: python integrate_s3tables_lakeformation.py")
         print(f"   3. Run: python setup_s3tables.py")

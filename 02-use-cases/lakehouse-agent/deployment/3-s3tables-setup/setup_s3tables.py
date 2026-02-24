@@ -187,7 +187,12 @@ def main():
     s3_bucket_name = f"{account_id}-{region}-lakehouse-agent"
     
     try:
-        s3.create_bucket(Bucket=s3_bucket_name)
+        create_params = {'Bucket': s3_bucket_name}
+        if region != 'us-east-1':
+            create_params['CreateBucketConfiguration'] = {
+                'LocationConstraint': region
+            }
+        s3.create_bucket(**create_params)
         print(f"✅ Created S3 bucket: {s3_bucket_name}")
     except s3.exceptions.BucketAlreadyOwnedByYou:
         print(f"✅ S3 bucket exists: {s3_bucket_name}")
@@ -235,9 +240,9 @@ def main():
     print(f"   /app/lakehouse-agent/s3-bucket-name")
     print(f"\n📋 Query via Athena:")
     print(f"   SELECT * FROM {catalog_name}.{namespace}.claims;")
-    print(f"\n📋 Next steps:")
-    print(f"   1. Run: python load_sample_data.py")
-    print(f"   2. Update MCP server to use S3 Tables")
+    print(f"\n📋 Next Steps:")
+    print(f"   1. Run: python setup_lakeformation_permissions.py")
+    print(f"   2. Run: python load_sample_data.py")
     print(f"   3. Test queries with Athena")
 
 if __name__ == '__main__':

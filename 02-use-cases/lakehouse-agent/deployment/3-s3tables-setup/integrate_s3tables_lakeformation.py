@@ -330,7 +330,7 @@ class S3TablesLakeFormationIntegration:
         print(f"   Federated Catalog: {catalog_name}")
         print(f"   S3 Tables Resource: arn:aws:s3tables:{self.region}:{self.account_id}:bucket/*")
         
-        print(f"\n📋 Next steps:")
+        print(f"\n📋 Next Steps:")
         print(f"   1. Run: python setup_s3tables.py")
         print(f"   2. Run: python setup_lakeformation_permissions.py")
         print(f"   3. Run: python load_sample_data.py")

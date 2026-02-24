@@ -150,7 +150,7 @@ def main():
     
     if not has_lf_role or not has_catalog:
         print(f"   ❌ Lake Formation integration NOT complete")
-        print(f"\n💡 Next steps:")
+        print(f"\n📋 Next Steps:")
         print(f"   1. Ensure you have Lake Formation admin permissions")
         print(f"   2. Run: python integrate_s3tables_lakeformation.py")
         if has_bucket:
@@ -158,7 +158,7 @@ def main():
             print(f"   4. Run: python setup_lakeformation_permissions.py")
     elif not has_bucket:
         print(f"   ⚠️  Lake Formation integrated but no S3 Tables bucket")
-        print(f"\n💡 Next steps:")
+        print(f"\n📋 Next Steps:")
         print(f"   1. Run: python setup_s3tables.py")
         print(f"   2. Run: python load_sample_data.py")
         print(f"   3. Run: python setup_lakeformation_permissions.py")
