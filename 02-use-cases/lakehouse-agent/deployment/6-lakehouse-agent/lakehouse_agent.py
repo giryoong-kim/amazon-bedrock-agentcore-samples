@@ -132,7 +132,7 @@ def handle_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     bearer_token = payload.get('bearer_token', '')
 
     logger.info(f"📥 Received request: {user_prompt[:100]}...")
-    logger.info(f"🔑 Bearer token present: {bool(bearer_token)} {bearer_token}")
+    logger.info(f"🔑 Bearer token present: {bool(bearer_token)}")
 
     # Load configuration
     config = get_config()
