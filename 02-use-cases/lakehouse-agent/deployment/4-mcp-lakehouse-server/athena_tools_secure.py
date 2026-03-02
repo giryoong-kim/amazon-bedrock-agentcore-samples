@@ -194,6 +194,12 @@ class SecureAthenaClaimsTools:
 
         except Exception as e:
             raise Exception(f"Error executing secure Athena query: {str(e)}")
+    def _is_policyholder_role(self, tenant_credentials: Optional[Dict[str, str]] = None) -> bool:
+        """Check if the tenant role is a policyholder (restricted column access)."""
+        if not tenant_credentials:
+            return False
+        role_name = tenant_credentials.get('role_name', '')
+        return 'policyholders' in role_name.lower()
 
     def query_claims(
         self,
@@ -272,13 +278,22 @@ class SecureAthenaClaimsTools:
             Claim details (only if user owns it)
         """
         try:
-            # Query without user_id check - Lake Formation handles it!
-            query = f"""
-                SELECT *
-                FROM {self.table_prefix}.claims
-                WHERE claim_id = '{claim_id}'
-                    AND (user_id='{user_id}' OR adjuster_user_id='{user_id}')
-            """
+            is_policyholder = self._is_policyholder_role(tenant_credentials)
+
+            if is_policyholder:
+                query = f"""
+                    SELECT *
+                    FROM {self.table_prefix}.claims
+                    WHERE claim_id = '{claim_id}'
+                        AND user_id='{user_id}'
+                """
+            else:
+                query = f"""
+                    SELECT *
+                    FROM {self.table_prefix}.claims
+                    WHERE claim_id = '{claim_id}'
+                        AND (user_id='{user_id}' OR adjuster_user_id='{user_id}')
+                """
 
             results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
 
@@ -315,7 +330,13 @@ class SecureAthenaClaimsTools:
             Summary statistics (only for user's claims)
         """
         try:
-            # Summary query without user_id filter
+            is_policyholder = self._is_policyholder_role(tenant_credentials)
+
+            if is_policyholder:
+                where_clause = f"user_id='{user_id}'"
+            else:
+                where_clause = f"(user_id='{user_id}' OR adjuster_user_id='{user_id}')"
+
             query = f"""
                 SELECT
                     COUNT(*) as total_claims,
@@ -325,8 +346,7 @@ class SecureAthenaClaimsTools:
                     COUNT(CASE WHEN claim_status = 'approved' THEN 1 END) as approved_claims,
                     COUNT(CASE WHEN claim_status = 'denied' THEN 1 END) as denied_claims
                 FROM {self.table_prefix}.claims
-                WHERE 1=1
-                    AND (user_id='{user_id}' OR adjuster_user_id='{user_id}')
+                WHERE {where_clause}
             """
 
             results = self._execute_query(user_id, query, tenant_credentials=tenant_credentials)
