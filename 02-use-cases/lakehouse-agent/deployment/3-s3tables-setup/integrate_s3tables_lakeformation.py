@@ -37,6 +37,45 @@ class S3TablesLakeFormationIntegration:
         
         # Role name for Lake Formation data access
         self.lf_role_name = 'LakeFormationS3TablesDataAccessRole'
+
+    def ensure_lakeformation_admin(self):
+        """Ensure the current caller is a Lake Formation data lake administrator."""
+        print(f"\n🔐 Ensuring current role is a Lake Formation administrator...")
+
+        sts = boto3.client('sts', region_name=self.region)
+        caller_arn = sts.get_caller_identity()['Arn']
+
+        # Convert assumed-role session ARN to the role ARN
+        # e.g. arn:aws:sts::123:assumed-role/Admin/session -> arn:aws:iam::123:role/Admin
+        if ':assumed-role/' in caller_arn:
+            parts = caller_arn.split(':assumed-role/')
+            account_part = parts[0].replace(':sts:', ':iam:')
+            role_name = parts[1].split('/')[0]
+            role_arn = f"{account_part}:role/{role_name}"
+        else:
+            role_arn = caller_arn
+
+        print(f"   Current role: {role_arn}")
+
+        # Get existing settings
+        settings = self.lakeformation.get_data_lake_settings()['DataLakeSettings']
+        existing_admins = settings.get('DataLakeAdmins', [])
+        existing_principals = [a['DataLakePrincipalIdentifier'] for a in existing_admins]
+
+        if role_arn in existing_principals:
+            print(f"   ✅ Already a Lake Formation administrator")
+            return
+
+        # Add current role as admin, preserving existing admins
+        existing_admins.append({'DataLakePrincipalIdentifier': role_arn})
+        settings['DataLakeAdmins'] = existing_admins
+
+        # Remove read-only fields that can't be passed back
+        settings.pop('ReadOnlyAdmins', None)
+
+        self.lakeformation.put_data_lake_settings(DataLakeSettings=settings)
+        print(f"   ✅ Added as Lake Formation administrator")
+
         
     def _get_ssm_param(self, name: str) -> str:
         """Get parameter from SSM."""
@@ -311,6 +350,9 @@ class S3TablesLakeFormationIntegration:
         print(f"\n🚀 S3 Tables Lake Formation Integration")
         print(f"   Region: {self.region}")
         print(f"   Account: {self.account_id}")
+        
+        # Step 0: Ensure current role is a Lake Formation admin
+        self.ensure_lakeformation_admin()
         
         # Step 1: Create Lake Formation role
         role_arn = self.create_lakeformation_role()

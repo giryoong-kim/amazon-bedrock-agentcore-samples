@@ -7,7 +7,7 @@ This Lambda function acts as a Gateway Interceptor following the AgentCore MCP p
 3. Extracts user principal (email/username) from JWT claims
 4. Validates tool access based on user groups and allowed tools in DynamoDB
 5. Exchanges JWT claims to IAM credentials via DynamoDB role mapping
-6. Adds user identity and credentials to request headers for downstream MCP server
+6. Adds user identity and credentials to request for downstream MCP server
 7. Returns responses in proper MCP interceptor format
 
 Reference: https://github.com/awslabs/amazon-bedrock-agentcore-samples/blob/main/01-tutorials/02-AgentCore-gateway/14-token-exchange-at-request-interceptor/
