@@ -31,6 +31,8 @@ This system showcases a lakehouse data processing application with:
 - **OAuth credentials** propagated through the entire stack (UI → Agent → Gateway → MCP → Athena)
 - **Row-Level Security** enforced through federated user identity
 
+For detailed role-based access control scenarios and examples, see [scenarios.md](scenarios.md).
+
 ### What Makes This Production-Ready
 
 ✅ **End-to-End OAuth**: JWT bearer tokens validated at every layer
@@ -250,6 +252,9 @@ Key Points:
    - AWS Athena
    - AWS Glue
    - Amazon S3
+   - Amazon S3 Tables
+   - AWS Lake Formation
+   - Amazon DynamoDB
    - AWS Systems Manager (SSM Parameter Store)
 
 ### Development Environment
@@ -314,7 +319,7 @@ jupyter notebook
 
 | Notebook | Description |
 |----------|-------------|
-| `01-deploy-cognito.ipynb` | Set up Cognito User Pool with OAuth and test users |
+| `01-deploy-cognito.ipynb` | Set up Cognito User Pool with OAuth and test users. Optional: deploy login audit tracking |
 | `02-deploy-iam-roles.ipynb` | Create IAM roles for tenant groups (policyholders, adjusters, administrators) |
 | `03-deploy-s3tables.ipynb` | Deploy S3 Tables with Lake Formation integration and sample data |
 | `04-deploy-mcp-server.ipynb` | Deploy MCP Athena server on AgentCore Runtime |
@@ -340,6 +345,10 @@ cd 02-use-cases/lakehouse-agent/deployment
 
 # Step 1: Cognito User Pool + OAuth
 cd 1-cognito-setup && python setup_cognito.py
+
+# Step 1b (Optional): Login audit tracking
+bash deploy_post_auth_lambda.sh
+python setup_cognito.py --add-post-auth-trigger
 
 # Step 2: IAM tenant roles (policyholders, adjusters, administrators)
 cd ../2-lakehouse-tenant-roles-setup && python setup_iam_roles.py
@@ -374,12 +383,13 @@ See [deployment/README.md](deployment/README.md) for full details including Lake
 
 - **Cognito User Pool**: OAuth authentication with test users and groups
 - **IAM Tenant Roles**: Per-group roles with Athena/S3/Lake Formation permissions
-- **S3 Tables**: `claims` and `users` tables with Lake Formation row-level security
+- **S3 Tables**: `claims` and `users` tables in Apache Iceberg format with Lake Formation row-level security
+- **Lake Formation Integration**: Federated catalog (`s3tablescatalog`) with column-level and row-level access control
 - **S3 Bucket**: Athena query results storage
-- **MCP Server**: Athena tool execution layer on AgentCore Runtime
+- **MCP Server**: Athena tool execution layer on AgentCore Runtime (5 tools: `query_claims`, `get_claim_details`, `get_claims_summary`, `query_login_audit`, `text_to_sql`)
 - **Gateway**: Request routing with JWT validation and request/response interceptors
-- **Agent**: Conversational AI on AgentCore Runtime (Strands framework)
-- **DynamoDB Table**: Tenant-to-role mapping for interceptor authorization
+- **Agent**: Conversational AI on AgentCore Runtime (Strands framework, Claude Sonnet 4.5)
+- **DynamoDB Tables**: `lakehouse_tenant_role_map` (tenant-to-role mapping for interceptor authorization), `lakehouse_user_login_audit` (optional, login audit logs)
 - **Test Users**: policyholder001@example.com, adjuster001@example.com, admin@example.com (password: `TempPass123!`)
 
 ### Quick Test
@@ -390,6 +400,32 @@ After deployment, open the Streamlit UI at http://localhost:8501 and try:
 Query: "Show me all claims"
 Expected: Conversational response with claims data filtered by your user's permissions
 ```
+
+### Optional: Login Audit Tracking
+
+The system includes an optional login audit feature that records every Cognito authentication event to a DynamoDB table. This enables administrators to query login history through the agent (e.g., "show me recent login activity").
+
+**How it works:**
+1. A DynamoDB table (`lakehouse_user_login_audit`) stores login events with user ID, timestamp, IP address, user agent, and Cognito group membership
+2. A Lambda function (`lakehouse-cognito-post-auth`) is triggered automatically after each successful Cognito authentication
+3. Records have TTL-based expiration for automatic cleanup
+4. The MCP server's `query_login_audit` tool reads from this DynamoDB table (no Lake Formation involvement — this is a direct DynamoDB read, restricted to the administrators group via Gateway fine-grained access control)
+
+**To enable it:**
+- Via notebook: Run the optional Step 3 cells in `01-deploy-cognito.ipynb`
+- Via CLI:
+  ```bash
+  cd deployment/1-cognito-setup
+  bash deploy_post_auth_lambda.sh
+  python setup_cognito.py --add-post-auth-trigger
+  ```
+
+**Resources created:**
+- DynamoDB table: `lakehouse_user_login_audit` (PAY_PER_REQUEST, TTL enabled)
+- Lambda function: `lakehouse-cognito-post-auth`
+- IAM role: `lakehouse-cognito-post-auth-role`
+
+**This step is entirely optional.** The rest of the system (claims queries, summaries, text-to-SQL) works without it. If skipped, administrators will see a message that the login audit table doesn't exist when they try to query login history.
 
 ---
 
@@ -713,6 +749,7 @@ The system uses JWT scopes for fine-grained access control:
 | `lakehouse-api/claims.query` | Read claims | query_claims, get_claim_details, get_claims_summary |
 | `lakehouse-api/claims.submit` | Submit claims | submit_claim |
 | `lakehouse-api/claims.update` | Update claims | update_claim_status |
+| `lakehouse-api/claims.approve` | Approve/deny claims | approve_claim, deny_claim |
 
 Scopes are validated in the Gateway interceptor Lambda.
 
@@ -742,4 +779,4 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 **Status**: Production-Ready ✅
 **Authentication**: End-to-End OAuth with JWT
-**Last Updated**: January 2025
+**Last Updated**: March 2026
