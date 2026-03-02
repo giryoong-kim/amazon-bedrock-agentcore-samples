@@ -3,6 +3,9 @@
 
 set -e
 
+# Ensure common tool paths are available (e.g. when run from a notebook subprocess)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 echo "🚀 Deploying Gateway Interceptor Lambda"
 
 # Get AWS region from default configuration
