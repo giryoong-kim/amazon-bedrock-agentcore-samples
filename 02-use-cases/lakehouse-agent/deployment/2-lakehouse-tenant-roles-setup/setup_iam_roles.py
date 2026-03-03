@@ -49,7 +49,7 @@ class IAMRolesSetup:
     def get_trust_policy(self) -> Dict[str, Any]:
         """
         Create trust policy for AgentCore Runtime, Lambda role, and current account.
-        
+
         Returns:
             Trust policy document
         """
@@ -60,10 +60,19 @@ class IAMRolesSetup:
                 Name='/app/lakehouse-agent/interceptor-lambda-role-arn'
             )
             lambda_role_arn = response['Parameter']['Value']
-            print(f"   Found Lambda role ARN: {lambda_role_arn}")
+            print(f"   Found Lambda role ARN in SSM: {lambda_role_arn}")
+
+            # Verify the role actually exists in IAM (SSM may have stale value after cleanup)
+            role_name = lambda_role_arn.split('/')[-1]
+            try:
+                self.iam_client.get_role(RoleName=role_name)
+                print(f"   ✅ Verified role exists in IAM")
+            except self.iam_client.exceptions.NoSuchEntityException:
+                print(f"   ⚠️  Role not found in IAM (stale SSM parameter), skipping")
+                lambda_role_arn = None
         except:
             print(f"   Lambda role ARN not found in SSM, using account root principal")
-        
+
         statements = [
             {
                 "Effect": "Allow",
@@ -85,8 +94,8 @@ class IAMRolesSetup:
                 "Action": "sts:AssumeRole"
             }
         ]
-        
-        # Add explicit trust for Lambda role if found
+
+        # Add explicit trust for Lambda role if found and verified
         if lambda_role_arn:
             statements.append({
                 "Effect": "Allow",
@@ -95,7 +104,7 @@ class IAMRolesSetup:
                 },
                 "Action": "sts:AssumeRole"
             })
-        
+
         return {
             "Version": "2012-10-17",
             "Statement": statements

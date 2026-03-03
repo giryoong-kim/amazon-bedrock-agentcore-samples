@@ -1,5 +1,5 @@
 """
-Streamlit UI for Health Lakehouse Data Agent with Cognito User Authentication
+Streamlit UI for Lakehouse Agent with Cognito User Authentication
 """
 import streamlit as st
 import requests
@@ -427,7 +427,7 @@ with st.sidebar:
             st.session_state.example_prompt = ex
 
 # Main interface
-st.title("🏥 Health Lakehouse Data Assistant")
+st.title("🏥 Lakehouse Agent")
 st.markdown(f"Ask me about your lakehouse data! *Logged in as: {st.session_state.user_email or 'Not logged in'}*")
 
 if not st.session_state.access_token:

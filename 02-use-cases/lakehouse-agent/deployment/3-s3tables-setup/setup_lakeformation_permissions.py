@@ -3,7 +3,7 @@
 Lake Formation Permissions Setup for S3 Tables
 
 This script grants Lake Formation permissions to tenant roles for accessing S3 Tables.
-It configures row-level security by granting appropriate permissions to:
+It configures column-level and row-level security by granting appropriate permissions to:
 - lakehouse-policyholders-role
 - lakehouse-adjusters-role  
 - lakehouse-administrators-role
@@ -215,6 +215,52 @@ class LakeFormationSetup:
             print(f"   ✅ Column permissions already exist for {table_name}")
         except Exception as e:
             print(f"   ⚠️  Error granting column permissions: {e}")
+    def grant_column_wildcard_permissions(
+        self,
+        role_arn: str,
+        role_name: str,
+        table_name: str,
+        excluded_columns: List[str],
+        row_filter: Dict[str, Any] = None
+    ):
+        """Grant SELECT on all columns except the excluded ones using ColumnWildcard.
+
+        This allows SELECT * to work transparently — Lake Formation silently
+        omits the excluded columns from the result set instead of raising
+        COLUMN_NOT_FOUND.
+        """
+        print(f"   Granting wildcard column permissions on {table_name} (excluding {excluded_columns})...")
+
+        resource = {
+            'TableWithColumns': {
+                'CatalogId': self.catalog_id,
+                'DatabaseName': self.namespace,
+                'Name': table_name,
+                'ColumnWildcard': {
+                    'ExcludedColumnNames': excluded_columns
+                }
+            }
+        }
+
+        grant_params = {
+            'CatalogId': self.account_id,
+            'Principal': {'DataLakePrincipalIdentifier': role_arn},
+            'Resource': resource,
+            'Permissions': ['SELECT'],
+            'PermissionsWithGrantOption': []
+        }
+
+        try:
+            self.lakeformation.grant_permissions(**grant_params)
+            print(f"   ✅ Granted wildcard column permissions on {table_name}")
+
+            if row_filter:
+                self._apply_row_filter(role_arn, table_name, row_filter)
+
+        except self.lakeformation.exceptions.AlreadyExistsException:
+            print(f"   ✅ Wildcard column permissions already exist for {table_name}")
+        except Exception as e:
+            print(f"   ⚠️  Error granting wildcard column permissions: {e}")
     
     def _apply_row_filter(self, role_arn: str, table_name: str, row_filter: Dict[str, Any]):
         """Apply row-level filter to a table."""
@@ -244,7 +290,6 @@ class LakeFormationSetup:
         self.register_s3tables_resource()
         
         # Define column sets for claims table
-        # All columns (for adjusters and admins)
         claims_columns_all = [
             'claim_id', 'user_id', 'policyholder_name', 'policyholder_dob',
             'claim_date', 'claim_amount', 'claim_type', 'claim_status',
@@ -278,6 +323,7 @@ class LakeFormationSetup:
             # Grant table permissions
             if role_type == 'administrators':
                 # Admins get full access on all tables (including INSERT for data loading)
+                # NOTE: This access level is for the account owner to be able to check from Qeury editor. It does not map to admin@example.com demo user that we have a a part of this solution. The demo user does not have access to PII
                 print(f"   📊 Granting admin permissions...")
                 self.grant_table_permissions(role_arn, role_type, 'claims', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
                 self.grant_table_permissions(role_arn, role_type, 'users', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
@@ -292,11 +338,11 @@ class LakeFormationSetup:
                     role_arn, role_type, 'users', users_columns
                 )
             elif role_type == 'adjusters':
-                # Adjusters get full column access (need to see all data to process claims)
-                print(f"   📊 Granting column-level permissions (full access)...")
-                print(f"      Columns: {len(claims_columns_all)}/21 (all columns)")
-                self.grant_column_permissions_with_filter(
-                    role_arn, role_type, 'claims', claims_columns_all
+                # Adjusters get all columns except policyholder_dob (PII protection)
+                # Using ColumnWildcard so SELECT * works transparently
+                print(f"   📊 Granting column-level permissions (excluding policyholder_dob)...")
+                self.grant_column_wildcard_permissions(
+                    role_arn, role_type, 'claims', excluded_columns=['policyholder_dob']
                 )
                 self.grant_column_permissions_with_filter(
                     role_arn, role_type, 'users', users_columns
@@ -306,7 +352,7 @@ class LakeFormationSetup:
         print(f"\n📋 Permissions granted:")
         print(f"   Policyholders: SELECT on claims (15 columns - excludes internal data), SELECT on users")
         print(f"      Excluded columns: adjuster_user_id, created_by, last_modified_by, last_modified_date, notes, denial_reason")
-        print(f"   Adjusters: SELECT on claims (all 21 columns), SELECT on users")
+        print(f"   Adjusters: SELECT on claims (20 columns - excludes policyholder_dob), SELECT on users")
         print(f"   Administrators: Full access on all tables (SELECT, INSERT, ALTER, DELETE)")
         
         print(f"\n⚠️  Note: Row-level security filters need to be configured manually")

@@ -36,10 +36,15 @@ For detailed role-based access control scenarios and examples, see [scenarios.md
 ### What Makes This Production-Ready
 
 ✅ **End-to-End OAuth**: JWT bearer tokens validated at every layer
+
 ✅ **Row-Level Security**: Agentcore lambda interceptors translate user tokens to user identity which is passed on to the MCP server to ensure row-level access control
+
 ✅ **Conversational AI**: Natural language interface for data queries
+
 ✅ **Scalable Architecture**: AgentCore Runtime and Gateway for production workloads
+
 ✅ **Full Audit Trail**: CloudTrail logs all data access with user identity
+
 ✅ **Secure by Design**: Token validation at multiple checkpoints
 
 ---
@@ -284,11 +289,19 @@ pip install -r requirements.txt
 Ensure you have AWS credentials configured using one of these methods:
 
 ```bash
-# Option 1: AWS SSO (Recommended)
+# Option 1: .env file (Recommended for notebooks)
+cp .env.example .env
+# Edit .env and add your AWS credentials:
+#   AWS_DEFAULT_REGION=us-east-1
+#   AWS_ACCESS_KEY_ID=your-access-key
+#   AWS_SECRET_ACCESS_KEY=your-secret-key
+#   AWS_SESSION_TOKEN=your-session-token  (required for temporary credentials)
+
+# Option 2: AWS SSO
 export AWS_PROFILE=your-profile-name
 aws sso login --profile your-profile-name
 
-# Option 2: Access keys / temporary credentials
+# Option 3: Access keys / temporary credentials
 aws configure
 ```
 
@@ -314,7 +327,7 @@ Start Jupyter and run the notebooks in order:
 ```bash
 cd 02-use-cases/lakehouse-agent
 source .venv/bin/activate
-jupyter notebook
+jupyter notebook ### Or select the kernel to be the .venv installed with pre-requisites in the "Development Environment" section in the top right corner of every the notebook
 ```
 
 | Notebook | Description |
@@ -481,17 +494,32 @@ Test queries:
 
 ### User-Specific Data Access Demo
 
-The lakehouse agent implements row-level security (RLS) through Agentcore Lambda interceptors, ensuring users only see data they're authorized to access. Based on the logged-in user, you can see how user-specific datasets are shared in the screenshots below:
+The lakehouse agent implements row-level security (RLS) and column-level security through Lake Formation and AgentCore Lambda interceptors, ensuring users only see data they're authorized to access.
 
-#### Test User 1 - Limited Access
-![Test User 1 - Lakehouse Agent](screenshots/testuser1-lakehouseagent.png)
+#### Scenario 1: Policyholder Sees Own PII (Date of Birth)
+![Policyholder PII Access](screenshots/policyholder-access-to-PII.png)
 
-**User**: `testuser1` - Shows limited dataset access based on user permissions. This user can only see claims and data that they are authorized to view through row-level filters.
+A policyholder can see their own date of birth and personal information when querying their claims.
 
-#### Test User 2 - Different Data Scope  
-![Test User 2 - Lakehouse Agent](screenshots/testuser2-lakehouseagent.png)
+#### Scenario 2: Policyholder Cannot See Adjuster Details
+![Policyholder Adjuster Masked](screenshots/policyholder-adjusterdetail-masked.png)
 
-**User**: `testuser2` - Shows a different set of data based on their specific permissions. Notice how the same query returns different results depending on the authenticated user's access rights.
+The same policyholder cannot see the `adjuster_user_id` column — Lake Formation column-level security excludes it from the result set.
+
+#### Scenario 3: Policyholder Cannot Access Another Policyholder's Claims
+![Cross-Policyholder Denied](screenshots/policyholder2-tries-policyholder1CLM-denied.png)
+
+When policyholder002 tries to access policyholder001's claim, the query returns no results — row-level filtering ensures users only see their own data.
+
+#### Scenario 4: Adjuster Cannot See Policyholder Date of Birth
+![Adjuster DOB Masked](screenshots/adjuster-dob-masked.png)
+
+Adjusters can see all operational columns including `adjuster_user_id`, but `policyholder_dob` is excluded by Lake Formation column-level security to protect PII.
+
+#### Scenario 5: Admin Login Audit Without PII
+![Admin Login Audit](screenshots/admin-userlogs-noPII.png)
+
+Administrators can query login audit logs via the `query_login_audit` tool, which returns login metadata (timestamps, IPs, groups) without exposing sensitive PII.
 
 **Key Security Features Demonstrated**:
 - ✅ **Row-Level Security**: Each user sees only their authorized data

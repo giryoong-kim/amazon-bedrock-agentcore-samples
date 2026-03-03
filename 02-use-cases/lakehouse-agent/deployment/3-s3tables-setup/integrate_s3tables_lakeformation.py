@@ -252,9 +252,9 @@ class S3TablesLakeFormationIntegration:
     def create_federated_catalog(self):
         """Create federated catalog for S3 Tables."""
         print(f"\n📚 Creating federated catalog for S3 Tables...")
-        
+
         catalog_name = 's3tablescatalog'
-        
+
         catalog_input = {
             "Name": catalog_name,
             "CatalogInput": {
@@ -267,56 +267,19 @@ class S3TablesLakeFormationIntegration:
                 "AllowFullTableExternalDataAccess": "True"
             }
         }
-        
+
         try:
             response = self.glue.create_catalog(**catalog_input)
             print(f"✅ Created federated catalog: {catalog_name}")
-            print(f"   Response: {response}")
-            
-            # Verify it was created
-            try:
-                verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
-                print(f"   ✅ Verified catalog exists (can list databases)")
-            except Exception as e:
-                print(f"   ⚠️  Catalog created but verification failed: {e}")
-            
             return catalog_name
-            
+
         except self.glue.exceptions.AlreadyExistsException:
-            print(f"⚠️  Federated catalog already exists: {catalog_name}")
-            
-            # Try to verify it works
-            try:
-                verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
-                print(f"   ✅ Catalog is functional")
-                return catalog_name
-            except Exception as e:
-                print(f"   ❌ Catalog exists but is broken: {e}")
-                print(f"   🔧 Attempting to fix by deleting and recreating...")
-                
-                try:
-                    # Delete the broken catalog
-                    self.glue.delete_catalog(CatalogId=catalog_name)
-                    print(f"   ✅ Deleted broken catalog")
-                    
-                    # Wait a moment
-                    import time
-                    time.sleep(2)
-                    
-                    # Recreate it
-                    response = self.glue.create_catalog(**catalog_input)
-                    print(f"   ✅ Recreated catalog: {catalog_name}")
-                    
-                    # Verify again
-                    verify = self.glue.get_databases(CatalogId=catalog_name, MaxResults=1)
-                    print(f"   ✅ Catalog is now functional")
-                    
-                    return catalog_name
-                    
-                except Exception as recreate_error:
-                    print(f"   ❌ Failed to recreate catalog: {recreate_error}")
-                    raise
-            
+            print(f"✅ Federated catalog already exists: {catalog_name}")
+            # The catalog exists — this is fine. Don't try to verify via get_databases
+            # because the LakeFormation data access role's IAM policy may not have
+            # propagated yet, causing a false AccessDeniedException.
+            return catalog_name
+
         except Exception as e:
             print(f"❌ Error creating catalog: {e}")
             print(f"   Error type: {type(e).__name__}")
