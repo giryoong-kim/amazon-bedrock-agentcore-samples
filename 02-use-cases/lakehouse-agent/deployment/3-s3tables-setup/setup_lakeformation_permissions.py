@@ -323,7 +323,6 @@ class LakeFormationSetup:
             # Grant table permissions
             if role_type == 'administrators':
                 # Admins get full access on all tables (including INSERT for data loading)
-                # NOTE: This access level is for the account owner to be able to check from Qeury editor. It does not map to admin@example.com demo user that we have a a part of this solution. The demo user does not have access to PII
                 print(f"   📊 Granting admin permissions...")
                 self.grant_table_permissions(role_arn, role_type, 'claims', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])
                 self.grant_table_permissions(role_arn, role_type, 'users', ['SELECT', 'DESCRIBE', 'INSERT', 'ALTER', 'DELETE'])

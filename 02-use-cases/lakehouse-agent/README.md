@@ -521,6 +521,11 @@ Adjusters can see all operational columns including `adjuster_user_id`, but `pol
 
 Administrators can query login audit logs via the `query_login_audit` tool, which returns login metadata (timestamps, IPs, groups) without exposing sensitive PII.
 
+#### Scenario 6: Admin Full Access Including PII
+![Admin Full Access](screenshots/admin-fullaccess.png)
+
+You can also configure Lakeformation permissions such that Administrators have full table-level access to all columns including `policyholder_dob` and `adjuster_user_id`. This enables complete data visibility for administrative operations and compliance reviews.
+
 **Key Security Features Demonstrated**:
 - ✅ **Row-Level Security**: Each user sees only their authorized data
 - ✅ **OAuth Integration**: User identity flows from Cognito through the entire system
