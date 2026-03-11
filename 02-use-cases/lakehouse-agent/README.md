@@ -33,7 +33,7 @@ This system showcases a lakehouse data processing application with:
 
 For detailed role-based access control scenarios and examples, see [scenarios.md](scenarios.md).
 
-### What Makes This Production-Ready
+### Core Capabilities
 
 ✅ **End-to-End OAuth**: JWT bearer tokens validated at every layer
 
@@ -810,6 +810,6 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 ---
 
-**Status**: Production-Ready ✅
+**Status**: Complete ✅
 **Authentication**: End-to-End OAuth with JWT
 **Last Updated**: March 2026
