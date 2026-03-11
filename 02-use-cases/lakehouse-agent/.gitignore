@@ -57,5 +57,6 @@ htmlcov/
 .bedrock_agentcore/
 .bedrock_agentcore.yaml
 .bedrock_agentcore.yaml*
+Dockerfile
 .agentcore.yaml
 .agentcore.json

@@ -524,7 +524,7 @@ Administrators can query login audit logs via the `query_login_audit` tool, whic
 #### Scenario 6: Admin Full Access Including PII
 ![Admin Full Access](screenshots/admin-fullaccess.png)
 
-You can also configure Lakeformation permissions such that Administrators have full table-level access to all columns including `policyholder_dob` and `adjuster_user_id`. This enables complete data visibility for administrative operations and compliance reviews.
+You can also configure Lakeformation permissions such that Administrators have full table-level access to all columns including `policyholder_dob` and `adjuster_user_id`. This enables complete data visibility for administrative operations and compliance reviews. This is how it has been currently configured in the solution. 
 
 **Key Security Features Demonstrated**:
 - ✅ **Row-Level Security**: Each user sees only their authorized data
