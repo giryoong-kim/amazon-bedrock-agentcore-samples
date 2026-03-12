@@ -42,7 +42,7 @@ class S3TablesCleanup:
         try:
             response = self.ssm.get_parameter(Name=f'/app/lakehouse-agent/{name}')
             return response['Parameter']['Value']
-        except:
+        except Exception:
             return default
     
     def delete_tables(self):

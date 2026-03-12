@@ -55,7 +55,7 @@ def load_config_from_ssm():
             try:
                 response = ssm.get_parameter(Name=param_name)
                 config[key] = response['Parameter']['Value']
-            except:
+            except Exception:
                 config[key] = None
 
         config['region'] = region
@@ -85,7 +85,7 @@ def authenticate_user(username: str, password: str, user_pool_id: str, client_id
                 Name='/app/lakehouse-agent/cognito-app-client-secret',
                 WithDecryption=True
             )['Parameter']['Value']
-        except:
+        except Exception:
             st.error("❌ Could not retrieve client secret from SSM")
             return None
         
@@ -144,7 +144,7 @@ def set_new_password(username: str, new_password: str, session: str, user_pool_i
                 Name='/app/lakehouse-agent/cognito-app-client-secret',
                 WithDecryption=True
             )['Parameter']['Value']
-        except:
+        except Exception:
             st.error("❌ Could not retrieve client secret from SSM")
             return None
         
@@ -204,7 +204,7 @@ def invoke_agent(runtime_arn: str, prompt: str, access_token: str, id_token: str
         # Prepare payload
         payload = {"prompt": prompt, "bearer_token": access_token, "id_token": id_token}
         
-        st.info(f"🔗 Invoking AgentCore Runtime with OAuth")
+        st.info("🔗 Invoking AgentCore Runtime with OAuth")
         
         # Make HTTPS request
         response = requests.post(
@@ -220,7 +220,7 @@ def invoke_agent(runtime_arn: str, prompt: str, access_token: str, id_token: str
             try:
                 error_detail = response.json()
                 error_msg += f": {error_detail}"
-            except:
+            except (json.JSONDecodeError, ValueError):
                 error_msg += f": {response.text}"
             return f"❌ Error: {error_msg}"
         
@@ -464,7 +464,7 @@ if "example_prompt" in st.session_state and st.session_state.example_prompt:
         try:
             data = json.loads(response)
             response = data.get("content", response)
-        except:
+        except (json.JSONDecodeError, ValueError):
             pass
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
@@ -492,7 +492,7 @@ if prompt:
         try:
             data = json.loads(response)
             response = data.get("content", response)
-        except:
+        except (json.JSONDecodeError, ValueError):
             pass
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})

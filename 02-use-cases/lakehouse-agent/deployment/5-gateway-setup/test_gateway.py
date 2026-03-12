@@ -361,7 +361,7 @@ def test_gateway(access_token: str, region: str):
                                                         summary = result_data.get('summary', {})
                                                         print(f"   Total Claims: {summary.get('total_claims', 0)}")
                                                         print(f"   Total Amount: ${summary.get('total_amount', 0):,.2f}")
-                                                except:
+                                                except (json.JSONDecodeError, ValueError, KeyError):
                                                     print(f"   Response: {content['text'][:200]}")
                                 break
                             except json.JSONDecodeError:

@@ -38,7 +38,7 @@ class GatewayCleanup:
     def _get_ssm_param(self, name, default=None):
         try:
             return self.ssm.get_parameter(Name=f'/app/lakehouse-agent/{name}')['Parameter']['Value']
-        except:
+        except Exception:
             return default
 
     def delete_gateway(self):

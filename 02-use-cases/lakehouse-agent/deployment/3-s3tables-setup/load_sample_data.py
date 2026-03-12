@@ -50,7 +50,7 @@ def execute_query(athena, query, catalog, database, output_location, retries=2):
             try:
                 current = athena.get_query_execution(QueryExecutionId=query_id)
                 print(f"      Status: {current['QueryExecution']['Status']}")
-            except:
+            except Exception:
                 pass
             raise Exception(f"Query timeout after 120 seconds")
         

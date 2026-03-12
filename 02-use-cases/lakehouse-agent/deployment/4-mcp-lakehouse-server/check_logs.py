@@ -136,7 +136,7 @@ def main():
                 try:
                     idx = int(choice) - 1
                     selected_group = found_groups[idx]['logGroupName']
-                except:
+                except (ValueError, IndexError):
                     selected_group = found_groups[0]['logGroupName']
             else:
                 selected_group = found_groups[0]['logGroupName']

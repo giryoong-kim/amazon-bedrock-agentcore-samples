@@ -131,8 +131,8 @@ class SecureAthenaClaimsTools:
                         print(f"🔐 Executing query with DEFAULT ROLE: {role_name}")
                     else:
                         print(f"🔐 Executing query with IDENTITY: {arn}")
-                except:
-                    print(f"🔐 Executing query with DEFAULT CREDENTIALS")
+                except Exception:
+                    print("🔐 Executing query with DEFAULT CREDENTIALS")
 
             # Execute query - Lake Formation will automatically apply row filter
             query_context = {'Database': self.database_name}

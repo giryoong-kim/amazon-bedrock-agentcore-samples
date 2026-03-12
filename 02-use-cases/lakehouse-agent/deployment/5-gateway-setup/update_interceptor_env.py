@@ -82,7 +82,7 @@ def main():
         )
         
         print(f"✅ Lambda environment variables updated!")
-        print(f"   New configuration:")
+        print("   New configuration:")
         print(f"      COGNITO_REGION: {region}")
         print(f"      COGNITO_USER_POOL_ID: {user_pool_id}")
         print(f"      COGNITO_APP_CLIENT_ID: {app_client_id}")

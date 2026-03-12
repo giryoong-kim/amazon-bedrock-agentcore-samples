@@ -39,12 +39,12 @@ class SSMConfig:
         # Get account ID
         self.account_id = self.sts.get_caller_identity()['Account']
         
-        print(f"✅ Using AWS configuration")
+        print("✅ Using AWS configuration")
         print(f"   Region: {self.region}")
         print(f"   Account: {self.account_id}")
         
         # Load configuration from SSM
-        print(f"\n🔍 Loading configuration from SSM Parameter Store...")
+        print("\n🔍 Loading configuration from SSM Parameter Store...")
         self.mcp_server_runtime_arn = self._get_parameter('/app/lakehouse-agent/mcp-server-runtime-arn')
         self.interceptor_lambda_arn = self._get_parameter('/app/lakehouse-agent/interceptor-lambda-arn')
         self.cognito_user_pool_arn = self._get_parameter('/app/lakehouse-agent/cognito-user-pool-arn')
@@ -57,10 +57,10 @@ class SSMConfig:
             self.cognito_m2m_client_id = self._get_parameter('/app/lakehouse-agent/cognito-m2m-client-id')
             self.cognito_m2m_client_secret = self._get_parameter('/app/lakehouse-agent/cognito-m2m-client-secret', secure=True)
             print(f"   ✅ M2M Client ID: {self.cognito_m2m_client_id}")
-            print(f"   ✅ M2M Client Secret: ****** (loaded)")
+            print("   ✅ M2M Client Secret: ****** (loaded)")
             self.has_m2m_client = True
-        except:
-            print(f"   ⚠️  M2M client not found, will use hybrid client for Gateway-to-Runtime auth")
+        except Exception:
+            print("   ⚠️  M2M client not found, will use hybrid client for Gateway-to-Runtime auth")
             self.cognito_m2m_client_id = self.cognito_app_client_id
             self.cognito_m2m_client_secret = self.cognito_app_client_secret
             self.has_m2m_client = False
@@ -69,7 +69,7 @@ class SSMConfig:
         print(f"   ✅ Interceptor Lambda ARN: {self.interceptor_lambda_arn}")
         print(f"   ✅ Cognito User Pool ARN: {self.cognito_user_pool_arn}")
         print(f"   ✅ Cognito App Client ID: {self.cognito_app_client_id}")
-        print(f"   ✅ Cognito Client Secret: ****** (loaded)")
+        print("   ✅ Cognito Client Secret: ****** (loaded)")
         print(f"   ✅ Cognito Domain: {self.cognito_domain}")
     
     def _get_parameter(self, parameter_name: str, secure: bool = False) -> str:
@@ -79,7 +79,7 @@ class SSMConfig:
             return response['Parameter']['Value']
         except self.ssm.exceptions.ParameterNotFound:
             print(f"❌ SSM parameter {parameter_name} not found")
-            print(f"   Please run the setup scripts first")
+            print("   Please run the setup scripts first")
             sys.exit(1)
         except Exception as e:
             print(f"❌ Error retrieving parameter {parameter_name}: {e}")
@@ -242,7 +242,7 @@ class GatewaySetup:
                 PolicyName='GatewayExecutionPolicy',
                 PolicyDocument=json.dumps(policy_document)
             )
-            print(f"✅ Attached execution policy to role")
+            print("✅ Attached execution policy to role")
             
             return role_arn
             
@@ -282,7 +282,7 @@ class GatewaySetup:
             # Delete the role
             try:
                 iam.delete_role(RoleName=role_name)
-                print(f"   ✅ Deleted existing role")
+                print("   ✅ Deleted existing role")
             except Exception as e:
                 print(f"   ❌ Error deleting role: {e}")
                 raise
@@ -383,7 +383,7 @@ class GatewaySetup:
             gateway_url = response['gatewayUrl']
             gateway_arn = f"arn:aws:bedrock-agentcore:{self.config.region}:{self.config.account_id}:gateway/{gateway_id}"
 
-            print(f"✅ Gateway created successfully!")
+            print("✅ Gateway created successfully!")
             print(f"   Gateway ID: {gateway_id}")
             print(f"   Gateway URL: {gateway_url}")
             print(f"   Gateway ARN: {gateway_arn}")
@@ -543,7 +543,7 @@ class GatewaySetup:
         try:
             print(f"\n🎯 Creating gateway target: {target_name}")
             print(f"   MCP Server URL: {mcp_server_url}")
-            print(f"   Authentication: OAuth2 Client Credentials")
+            print("   Authentication: OAuth2 Client Credentials")
             print(f"   Provider ARN: {oauth_provider_arn}")
             
             response = self.client.create_gateway_target(
@@ -569,7 +569,7 @@ class GatewaySetup:
                 ]
             )
             
-            print(f"✅ Gateway target created successfully with OAuth2 authentication!")
+            print("✅ Gateway target created successfully with OAuth2 authentication!")
             return response
             
         except Exception as e:
@@ -592,7 +592,7 @@ class GatewaySetup:
         """
         import time
         
-        print(f"\n⏳ Checking gateway status...")
+        print("\n⏳ Checking gateway status...")
         start_time = time.time()
         
         while time.time() - start_time < max_wait_seconds:
@@ -609,14 +609,14 @@ class GatewaySetup:
                     print(f"❌ Gateway is in {status} status")
                     return False
                 
-                print(f"   Waiting for gateway to be ready...")
+                print("   Waiting for gateway to be ready...")
                 time.sleep(10)
                 
             except Exception as e:
                 print(f"⚠️  Error checking gateway status: {e}")
                 time.sleep(10)
         
-        print(f"⚠️  Timeout waiting for gateway to be active")
+        print("⚠️  Timeout waiting for gateway to be active")
         return False
 
 
@@ -664,7 +664,7 @@ def main():
     # Gateway name
     gateway_name = 'lakehouse-gateway'
     
-    print(f"\n📋 Configuration:")
+    print("\n📋 Configuration:")
     print(f"   Gateway Name: {gateway_name}")
     print(f"   MCP Server: {config.mcp_server_runtime_arn}")
     print(f"   Interceptor: {config.interceptor_lambda_arn}")
@@ -687,12 +687,12 @@ def main():
             
             # Determine which client to use for Gateway-to-Runtime authentication
             if config.has_m2m_client:
-                print(f"\n🔐 Using M2M client for Gateway-to-Runtime authentication")
+                print("\n🔐 Using M2M client for Gateway-to-Runtime authentication")
                 auth_client_id = config.cognito_m2m_client_id
                 auth_client_secret = config.cognito_m2m_client_secret
                 provider_name = 'lakehouse-mcp-m2m-oauth-provider'
             else:
-                print(f"\n🔐 Using hybrid client for Gateway-to-Runtime authentication")
+                print("\n🔐 Using hybrid client for Gateway-to-Runtime authentication")
                 auth_client_id = config.cognito_app_client_id
                 auth_client_secret = config.cognito_app_client_secret
                 provider_name = 'lakehouse-mcp-oauth-provider'
@@ -715,7 +715,7 @@ def main():
                     oauth_provider_arn=oauth_provider_arn
                 )
         else:
-            print(f"\n⚠️  Gateway not active yet. You can create the target later.")
+            print("\n⚠️  Gateway not active yet. You can create the target later.")
         
         # Store gateway configuration in SSM
         config.store_gateway_parameters(

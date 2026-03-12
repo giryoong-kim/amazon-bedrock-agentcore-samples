@@ -113,7 +113,7 @@ def check_users():
                 print("   1. Run: python test_cognito_login.py")
                 print("   2. Try the default password: TempPass123!")
                 print("   3. You may need to change password on first login")
-    except:
+    except Exception:
         pass
     
     print()

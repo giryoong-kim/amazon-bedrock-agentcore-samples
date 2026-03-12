@@ -70,8 +70,8 @@ class IAMRolesSetup:
             except self.iam_client.exceptions.NoSuchEntityException:
                 print(f"   ⚠️  Role not found in IAM (stale SSM parameter), skipping")
                 lambda_role_arn = None
-        except:
-            print(f"   Lambda role ARN not found in SSM, using account root principal")
+        except Exception:
+            print("   Lambda role ARN not found in SSM, using account root principal")
 
         statements = [
             {
